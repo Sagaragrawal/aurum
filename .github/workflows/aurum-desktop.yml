@@ -1,0 +1,54 @@
+name: Aurum Desktop
+run-name: Desktop · ${{ github.event_name }} · ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "aurum-desktop/**"
+      - ".github/workflows/aurum-desktop.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "aurum-desktop/**"
+      - ".github/workflows/aurum-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurum-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aurum-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: aurum-desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            node --check "$file"
+          done < <(find src public extension scratch -type f -name '*.js' -print0)
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find scripts -type f -name '*.sh' -print0)
+      - name: Run parser regression suite
+        run: node scratch/test-all-cases.js

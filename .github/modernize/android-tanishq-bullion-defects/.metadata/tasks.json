@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Sequential focused Android defect-fix cycles for Aurum. Each task is diagnose -> narrow root-cause fix -> Android test/lint/build/install/physical-ADB-retest -> device-test version bump and audit/ledger update. Cycles are strictly sequential; no combined or speculative changes.",
+  "tasks": [
+    {
+      "type": "fix",
+      "id": "001-fix-tanishq-top-black-bar-spacing",
+      "priority": "P1",
+      "description": "Eliminate the residual top black-bar spacing in the Tanishq browser refresh so the rendered gold-rate page sits directly below the fixed top chrome, matching the corrected BrowserRefreshScreen inset contract.",
+      "reason": "User reports Tanishq opens better than before but still shows too much black-bar spacing at the top; a visual P1 defect in the Tanishq WebView host/insets/viewport.",
+      "requirements": "Reproduce on a physical device first and measure the top gap (UI hierarchy / window dump). Diagnose the root cause across the tanishqRefreshing overlay Box in ui/AurumApp.kt (padding top=64dp/bottom=62dp + navigationBars inset) and ui/TanishqBrowserScreen.kt (visible header Row + LinearProgressIndicator stacked above the WebView Box, BrowserViewport.derive sizing, and any child offset). Compare against the already-corrected BrowserRefreshScreen to find the divergence causing the extra top band (double top inset, status-bar inset, or viewport offset). Fix ONLY the responsible inset/host/viewport layer for the Tanishq path. MUST preserve intentional Browser behavior: keep the single mounted WebView in its existing composition slot, do not move the slot, do not add a second WebView, re-run a factory, or reintroduce a keyed host; do not alter extraction, polling, parsing, or navigation-token lifecycle. Retest the same Tanishq refresh scenario on-device.",
+      "scope": {
+        "primaryFiles": [
+          "aurum-android/app/src/main/java/com/aurum/intelligence/ui/TanishqBrowserScreen.kt",
+          "aurum-android/app/src/main/java/com/aurum/intelligence/ui/AurumApp.kt"
+        ],
+        "referenceOnly": [
+          "aurum-android/app/src/main/java/com/aurum/intelligence/ui/BrowserRefreshScreen.kt",
+          "aurum-android/app/src/main/java/com/aurum/intelligence/browser/BrowserViewport.kt"
+        ]
+      },
+      "preRead": [
+        ".github/PROJECT_CONTEXT.md",
+        ".github/AGENT_CHANGES.md",
+        ".github/STORE_EXECUTION_CONTEXT.md"
+      ],
+      "deviceVersion": { "versionName": "4.9.18", "versionCode": "40918" },
+      "environmentConfiguration": "adb=/opt/homebrew/share/android-commandlinetools/platform-tools/adb",
+      "successCriteria": {
+        "passBuild": "true",
+        "generateNewUnitTests": "false",
+        "passUnitTests": "true"
+      },
+      "validationGates": [
+        "cd aurum-android && ./gradlew :app:testDebugUnitTest --warning-mode all",
+        "cd aurum-android && ./gradlew :app:lintDebug --warning-mode all",
+        "cd aurum-android && ./gradlew :app:assembleDebug --warning-mode all",
+        "install bumped 4.9.18/40918 debug APK with data retained via fixed adb path",
+        "physical ADB retest of the same Tanishq refresh; capture before/after screenshots proving the top gap is removed and Browser behavior is unchanged"
+      ],
+      "postExecution": [
+        "write device-audit/<timestamp>/ evidence + artifact-manifest.txt",
+        "append newest-first .github/AGENT_CHANGES.md entry",
+        "update .github/PROJECT_CONTEXT.md only if an invariant/hosting rule/version changes"
+      ],
+      "dependencies": []
+    },
+    {
+      "type": "fix",
+      "id": "002-fix-bullion-refresh-progress-count",
+      "priority": "P1",
+      "description": "Correct the bullion refresh progress so the user-facing total reflects all four bullion sources (Tanishq, Malabar, MMTC, Kalyan) instead of showing 3, while preserving each source's existing fetch transport.",
+      "reason": "During bullion refresh the UI reports 3 instead of the expected 4; the progress total omits the browser-required Tanishq source that is refreshed in parallel via the rendered-page path.",
+      "requirements": "Confirm the expected count definition: four default bullion sources exist in BullionRepository.defaultSources (Tanishq is TRANSPORT_BROWSER_REQUIRED; Malabar/MMTC/Kalyan are direct HTTP). Identify the failure boundary: BullionRepository.refresh(sourceId=null) filters out TRANSPORT_BROWSER_REQUIRED, so selected.size=3 drives BullionRefreshProgress.total, while Tanishq is refreshed separately through recordBrowserRates('tan', ...) via recordTanishqRate and is not counted. Correct ONLY the responsible progress/count layer so the combined bullion refresh reports total 4; the direct-HTTP loop continues iterating its own sources and Tanishq continues to use its required browser path. Do NOT change fetch transport, rate parsing, or persistence semantics. Add or adjust a regression unit test asserting the combined bullion refresh reports total 4. Retest a bullion refresh on a physical device.",
+      "scope": {
+        "primaryFiles": [
+          "aurum-android/app/src/main/java/com/aurum/intelligence/data/BullionRepository.kt",
+          "aurum-android/app/src/main/java/com/aurum/intelligence/ui/AurumViewModel.kt",
+          "aurum-android/app/src/main/java/com/aurum/intelligence/ui/AurumApp.kt"
+        ],
+        "referenceOnly": []
+      },
+      "preRead": [
+        ".github/PROJECT_CONTEXT.md",
+        ".github/AGENT_CHANGES.md",
+        ".github/STORE_EXECUTION_CONTEXT.md"
+      ],
+      "deviceVersion": { "versionName": "4.9.19", "versionCode": "40919" },
+      "environmentConfiguration": "adb=/opt/homebrew/share/android-commandlinetools/platform-tools/adb",
+      "successCriteria": {
+        "passBuild": "true",
+        "generateNewUnitTests": "true",
+        "passUnitTests": "true"
+      },
+      "validationGates": [
+        "cd aurum-android && ./gradlew :app:testDebugUnitTest --warning-mode all",
+        "cd aurum-android && ./gradlew :app:lintDebug --warning-mode all",
+        "cd aurum-android && ./gradlew :app:assembleDebug --warning-mode all",
+        "install bumped 4.9.19/40919 debug APK with data retained via fixed adb path",
+        "physical ADB retest of a bullion refresh; capture evidence showing the corrected total of 4"
+      ],
+      "postExecution": [
+        "write device-audit/<timestamp>/ evidence + artifact-manifest.txt",
+        "append newest-first .github/AGENT_CHANGES.md entry",
+        "update .github/PROJECT_CONTEXT.md only if an invariant/version changes"
+      ],
+      "dependencies": ["001-fix-tanishq-top-black-bar-spacing"]
+    }
+  ],
+  "metadata": {
+    "planName": "android-tanishq-bullion-defects",
+    "projectName": "Aurum (aurum-android)",
+    "language": "java",
+    "createdAt": "2026-09-01T00:00:00Z",
+    "version": "1.0"
+  }
+}

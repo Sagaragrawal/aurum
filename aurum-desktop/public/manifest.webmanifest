@@ -1,0 +1,10 @@
+{
+  "name": "Aurum 24K Intelligence",
+  "short_name": "Aurum",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080a09",
+  "theme_color": "#080a09",
+  "description": "24K bullion benchmarks, product intelligence and deal tracking."
+}

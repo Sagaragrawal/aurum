@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+data/browser-profile/
+aurum-browser-profiles/
+aurum-android/local.properties
+aurum-android/gradlew-laptop
+aurum-android/README.laptop.md
+aurum-android/.laptop-wrapper/
+aurum-android/.gradle/
+aurum-android/**/build/
+.DS_Store

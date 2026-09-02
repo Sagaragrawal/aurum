@@ -1,0 +1,11 @@
+Fetching distribution.
+Downloading https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+
+Attempt 1/1 failed. Reason: Server returned HTTP response code: 407 for URL: https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+Exception in thread "main" java.io.IOException: Server returned HTTP response code: 407 for URL: https://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+	at org.gradle.wrapper.Download.download(SourceFile:1)
+	at org.gradle.wrapper.Install.forceFetch(SourceFile)
+	at org.gradle.wrapper.Install.lambda$createDist$0(SourceFile:9)
+	at org.gradle.wrapper.Install.createDist(SourceFile:24)
+	at org.gradle.wrapper.GradleWrapperMain.lambda$prepareWrapper$0(SourceFile:2)
+	at org.gradle.wrapper.GradleWrapperMain.main(SourceFile:2)

@@ -1,0 +1,68 @@
+name: Aurum Android
+run-name: Android · ${{ github.event_name }} · ${{ github.ref_name }}
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "aurum-android/**"
+      - "aurum-desktop/manual_js/**"
+      - "aurum-desktop/data/products/**"
+      - "aurum-desktop/data/aurum.sqlite*"
+      - ".github/workflows/aurum-android.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "aurum-android/**"
+      - "aurum-desktop/manual_js/**"
+      - "aurum-desktop/data/products/**"
+      - "aurum-desktop/data/aurum.sqlite*"
+      - ".github/workflows/aurum-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aurum-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: aurum-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 16 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test, lint, and build APK
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --warning-mode all
+      - name: Verify immutable master scripts
+        shell: bash
+        run: |
+          for file in ajio_gold_master.js amazon_gold_master_v14_3_final.js flipkart_gold_master_final.js myntra_gold_master_v7_final.js; do
+            cmp "../aurum-desktop/manual_js/$file" "app/build/generated/masterAssets/manual_js/$file"
+          done
+          for file in ajio-com.json amazon-in.json flipkart-com.json myntra-com.json; do
+            cmp "../aurum-desktop/data/products/$file" "app/build/generated/masterAssets/seed/products/$file"
+          done
+          for file in aurum.sqlite aurum.sqlite-wal aurum.sqlite-shm; do
+            cmp "../aurum-desktop/data/$file" "app/build/generated/masterAssets/seed/history/$file"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurum-android-debug-apk
+          path: aurum-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

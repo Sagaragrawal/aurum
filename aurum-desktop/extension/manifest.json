@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Goldline Rate Bridge",
+  "version": "1.0.0",
+  "description": "Sends live rates and product listing API data from approved retailer tabs to the local dashboard.",
+  "permissions": [],
+  "host_permissions": [
+    "https://www.joyalukkas.in/*",
+    "https://www.tanishq.co.in/*",
+    "https://www.ajio.com/*",
+    "https://www.myntra.com/*",
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.joyalukkas.in/goldrate*",
+        "https://www.tanishq.co.in/gold-rate*",
+        "https://www.ajio.com/c/830306012*",
+        "https://www.ajio.com/c/830306009*",
+        "https://www.myntra.com/gold-coin*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

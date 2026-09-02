@@ -1,0 +1,69 @@
+{
+  "settings": {
+    "pincode": "560048",
+    "preciseAddress": "Dhruvika Mogra Apartment",
+    "debugVisibleBrowser": false,
+    "productDebugVisibleBrowser": true,
+    "productAutoRefresh": false,
+    "productRefreshIntervalMin": 5,
+    "refreshProductsOnStart": false,
+    "refreshBullionOnStart": true,
+    "ajioMasterUrls": [
+      "https://www.ajio.com/women-rings/c/830306004?query=%3Arelevance%3Averticalmetaltype%3AYellow%20Gold%3Averticalmetaltype%3AGold%3Averticalmetaltype%3ARose%20Gold%3Averticalmetaltype%3ARose%20Gold%C3%82%3Averticalmetaltype%3ARose%20Gold%C3%83%C2%82%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Al1l3nestedcategory%3AWomen%20-%20Rings%3Averticaljewellerytype%3AOnly%20Gold&gridColumns=3&segmentIds="
+    ]
+  },
+  "sources": [
+    {
+      "id": "tan",
+      "source": "Tanishq",
+      "label": "Tanishq gold rate",
+      "price": 15251,
+      "fetchedAt": "2026-09-02T09:21:50.066Z",
+      "status": "live",
+      "lastLiveAt": "2026-09-02T09:21:50.066Z",
+      "url": "https://www.tanishq.co.in/gold-rate.html",
+      "price22": 13980.08,
+      "price24": 15251,
+      "price22Derived": true
+    },
+    {
+      "id": "malabar",
+      "source": "Malabar Gold & Diamonds",
+      "label": "Malabar Gold & Diamonds",
+      "price": 15202,
+      "fetchedAt": "2026-09-02T09:21:50.066Z",
+      "status": "live",
+      "lastLiveAt": "2026-09-02T09:21:50.066Z",
+      "url": "https://www.malabargoldanddiamonds.com/in/pan-india/en/live-gold-rate.html",
+      "price22": 13935.17,
+      "price24": 15202,
+      "price22Derived": true
+    },
+    {
+      "id": "mmtc",
+      "source": "MMTC-PAMP",
+      "label": "MMTC-PAMP",
+      "price": 15565.45,
+      "fetchedAt": "2026-09-02T09:21:50.066Z",
+      "status": "live",
+      "url": "https://www.mmtcpamp.com/gold-silver-rate-today",
+      "lastLiveAt": "2026-09-02T09:21:50.066Z",
+      "price22": 14268.33,
+      "price24": 15565.45,
+      "price22Derived": true
+    },
+    {
+      "id": "kalyan",
+      "source": "Kalyan Jewellers",
+      "label": "Kalyan Jewellers",
+      "price": 15202,
+      "fetchedAt": "2026-09-02T09:21:50.066Z",
+      "status": "live",
+      "lastLiveAt": "2026-09-02T09:21:50.066Z",
+      "url": "https://store.kalyanjewellers.net/gold-rate/india/en",
+      "price22": 13935.17,
+      "price24": 15202,
+      "price22Derived": true
+    }
+  ]
+}
