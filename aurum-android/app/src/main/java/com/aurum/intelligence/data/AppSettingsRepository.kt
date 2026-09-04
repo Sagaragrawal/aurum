@@ -18,6 +18,8 @@ data class AppSettings(
     val theme: ThemeChoice = ThemeChoice.System,
     val pincode: String = "560048",
     val preciseAddress: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val refreshBullionOnStart: Boolean = false,
     val refreshProductsOnStart: Boolean = false,
     val dealMode: String = "Percent",
@@ -42,6 +44,8 @@ class AppSettingsRepository(private val context: Context) {
                 } ?: ThemeChoice.System,
                 pincode = preferences[pincodeKey]?.takeIf { it.matches(Regex("\\d{6}")) } ?: "560048",
                 preciseAddress = preferences[preciseAddressKey].orEmpty(),
+                latitude = preferences[latitudeKey]?.toDoubleOrNull(),
+                longitude = preferences[longitudeKey]?.toDoubleOrNull(),
                 refreshBullionOnStart = preferences[refreshBullionOnStartKey] ?: false,
                 refreshProductsOnStart = preferences[refreshProductsOnStartKey] ?: false,
                 dealMode = preferences[dealModeKey]?.takeIf { it in setOf("Percent", "RupeesPerGram") } ?: "Percent",
@@ -71,6 +75,13 @@ class AppSettingsRepository(private val context: Context) {
 
     suspend fun setRefreshProductsOnStart(enabled: Boolean) {
         context.aurumSettingsDataStore.edit { it[refreshProductsOnStartKey] = enabled }
+    }
+
+    suspend fun setCoordinates(lat: Double, lng: Double) {
+        context.aurumSettingsDataStore.edit {
+            it[latitudeKey] = lat.toString()
+            it[longitudeKey] = lng.toString()
+        }
     }
 
     suspend fun setDealMode(mode: String) {
@@ -105,6 +116,8 @@ class AppSettingsRepository(private val context: Context) {
         val themeKey = stringPreferencesKey("theme")
         val pincodeKey = stringPreferencesKey("pincode")
         val preciseAddressKey = stringPreferencesKey("precise_address")
+        val latitudeKey = stringPreferencesKey("latitude")
+        val longitudeKey = stringPreferencesKey("longitude")
         val refreshBullionOnStartKey = booleanPreferencesKey("refresh_bullion_on_start")
         val refreshProductsOnStartKey = booleanPreferencesKey("refresh_products_on_start")
         val dealModeKey = stringPreferencesKey("deal_mode")

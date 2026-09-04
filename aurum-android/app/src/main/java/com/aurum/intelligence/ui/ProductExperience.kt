@@ -628,6 +628,7 @@ private fun storeLabel(store: String): String = when (store) {
     "amazon.in" -> "Amazon"
     "flipkart.com" -> "Flipkart"
     "myntra.com" -> "Myntra"
+    "shopsy.in" -> "Shopsy"
     else -> store.substringBefore('.').replaceFirstChar(Char::uppercase)
 }
 

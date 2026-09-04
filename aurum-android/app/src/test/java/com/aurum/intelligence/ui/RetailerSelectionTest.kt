@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RetailerSelectionTest {
-    private val all = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+    private val all = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
 
     @Test
     fun allSelectedTapAmazonIsolatesAmazon() {

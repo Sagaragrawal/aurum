@@ -193,7 +193,7 @@ object AurumArchiveCodec {
     }
 
     private fun validateProduct(product: ArchiveProduct) {
-        require(product.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")) {
+        require(product.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")) {
             "Unsupported product store: ${product.store}"
         }
         require(product.retailerId.isNotBlank()) { "Product retailer identity is missing" }

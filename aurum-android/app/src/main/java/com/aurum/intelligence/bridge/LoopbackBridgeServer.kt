@@ -160,7 +160,7 @@ class LoopbackBridgeServer(
     private companion object {
         const val MAX_BODY_BYTES = 16 * 1024 * 1024
         const val MAX_HEADER_LINE_BYTES = 16 * 1024
-        val ALLOWED_RETAILER_HOSTS = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+        val ALLOWED_RETAILER_HOSTS = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
         fun jsonString(value: String): String = buildString {
             append('"')
             value.forEach { character ->

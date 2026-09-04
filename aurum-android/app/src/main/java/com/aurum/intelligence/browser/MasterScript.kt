@@ -5,6 +5,7 @@ enum class Retailer {
     Amazon,
     Flipkart,
     Myntra,
+    Shopsy,
 }
 
 data class MasterScript(
@@ -62,6 +63,16 @@ object MasterScripts {
             productBinding = "myntraGold",
             catalogueBinding = "myntraProducts",
             incompleteBinding = "myntraIncomplete",
+            requiresRunnerFlag = true,
+            hardTimeoutMillis = 4 * 60_000L,
+        ),
+        MasterScript(
+            retailer = Retailer.Shopsy,
+            assetName = "manual_js/flipkart_gold_master_final.js",
+            urls = listOf("https://www.shopsy.in/gold-silver-coins/pr?sid=mcr,73x&marketplace=FLIPKART&p[]=facets.material[]=Gold&p[]=facets.material[]=Yellow+Gold&p[]=facets.gold_purity%5B%5D=24+%28999%29+K&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK"),
+            productBinding = "shopsyGold",
+            catalogueBinding = "shopsyProducts",
+            incompleteBinding = "shopsyIncomplete",
             requiresRunnerFlag = true,
             hardTimeoutMillis = 4 * 60_000L,
         ),

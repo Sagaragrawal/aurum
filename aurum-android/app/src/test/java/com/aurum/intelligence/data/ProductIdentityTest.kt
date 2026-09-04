@@ -28,6 +28,10 @@ class ProductIdentityTest {
             "ABC123",
             ProductIdentity.derive("https://www.flipkart.com/item?pid=ABC123&iid=noise").retailerId,
         )
+        assertEquals(
+            "SHP123",
+            ProductIdentity.derive("https://www.shopsy.in/item?pid=SHP123&iid=noise").retailerId,
+        )
     }
 
     @Test

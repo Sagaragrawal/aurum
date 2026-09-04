@@ -19,19 +19,16 @@ import android.net.http.SslError
 import com.aurum.intelligence.data.RetailerUrlPolicy
 
 object RetailerWebView {
-        fun clearBrowserData(context: Context, onComplete: () -> Unit = {}) {
-            CookieManager.getInstance().removeAllCookies {
-                CookieManager.getInstance().flush()
-                WebStorage.getInstance().deleteAllData()
-                context.cacheDir.deleteRecursively()
-                context.codeCacheDir.deleteRecursively()
-                context.externalCacheDir?.deleteRecursively()
-                context.filesDir.deleteRecursively()
-                context.noBackupFilesDir.deleteRecursively()
-                context.dataDir.resolve("shared_prefs").deleteRecursively()
-                onComplete()
-            }
+    fun clearBrowserData(context: Context, onComplete: () -> Unit = {}) {
+        CookieManager.getInstance().removeAllCookies {
+            CookieManager.getInstance().flush()
+            WebStorage.getInstance().deleteAllData()
+            context.cacheDir.deleteRecursively()
+            context.codeCacheDir.deleteRecursively()
+            context.externalCacheDir?.deleteRecursively()
+            onComplete()
         }
+    }
     private data class NavigationTrace(
         val startedAt: Long,
         val onDiagnostic: (String, String) -> Unit,

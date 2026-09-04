@@ -20,14 +20,15 @@ object ProductIdentity {
             host == "amazon.in" || host.endsWith(".amazon.in") -> "amazon.in"
             host == "flipkart.com" -> "flipkart.com"
             host == "myntra.com" -> "myntra.com"
-            else -> throw IllegalArgumentException("Supported stores are AJIO, Amazon India, Flipkart, and Myntra")
+            host == "shopsy.in" || host.endsWith(".shopsy.in") -> "shopsy.in"
+            else -> throw IllegalArgumentException("Supported stores are AJIO, Amazon India, Flipkart, Myntra, and Shopsy")
         }
         val canonicalUrl = canonicalUrl(uri.toASCIIString())
         val segments = uri.path.orEmpty().split('/').filter(String::isNotBlank)
         val retailerId = when (store) {
             "ajio.com" -> segments.valueAfter("p")
             "amazon.in" -> segments.valueAfter("dp") ?: segments.valueAfter("product")
-            "flipkart.com" -> parseQuery(uri.rawQuery)["pid"]
+            "flipkart.com", "shopsy.in" -> parseQuery(uri.rawQuery)["pid"]
             "myntra.com" -> segments.lastOrNull { segment -> segment.all(Char::isDigit) }
             else -> null
         }?.takeIf(String::isNotBlank) ?: "url-${canonicalUrl.sha256().take(24)}"
@@ -41,7 +42,7 @@ object ProductIdentity {
         }
         val host = uri.host.lowercase().removePrefix("www.")
         val publicHost = "www.$host"
-        if (host != "flipkart.com") {
+        if (host != "flipkart.com" && host != "shopsy.in") {
             return URI("https", publicHost, uri.path.ifBlank { "/" }, null, null).toASCIIString()
         }
 

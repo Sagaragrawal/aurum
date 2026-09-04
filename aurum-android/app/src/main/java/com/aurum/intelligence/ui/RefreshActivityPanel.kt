@@ -181,6 +181,7 @@ private fun storeColor(store: String?): Color = when (store) {
     "amazon.in" -> Color(0xFF5DADE2)
     "flipkart.com" -> Color(0xFF46C2B8)
     "myntra.com" -> Color(0xFFFF6B9A)
+    "shopsy.in" -> Color(0xFF8E44AD)
     "tanishq" -> Color(0xFFF0B429)
     else -> Color(0xFFB0B8C2)
 }

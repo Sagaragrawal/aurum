@@ -201,13 +201,13 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
     private fun endpointFor(product: ProductEntity): String? = when (product.store) {
             "ajio.com" -> "https://www.ajio.com/api/p/${product.retailerId}"
             "myntra.com" -> "https://www.myntra.com/gateway/v2/product/${product.retailerId}"
-            "amazon.in", "flipkart.com" -> product.canonicalUrl
+            "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl
             else -> null
         }
 
     private companion object {
-        const val REQUEST_DELAY_MS = 300L
-        const val PARALLEL_CONCURRENCY = 8
+        const val REQUEST_DELAY_MS = 150L
+        const val PARALLEL_CONCURRENCY = 12
     }
 }
 
@@ -251,7 +251,10 @@ sealed interface ProductLookup {
             "please enter pincode",
             "servicable: false",
             "deliverable: false",
-            "isAvailable\":false"
+            "isAvailable\":false",
+            "unserviceable",
+            "pincode not serviceable",
+            "out of stock at pincode"
         )
 
         fun parse(store: String, statusCode: Int, body: String, sourceUrl: String = ""): ProductLookup {
@@ -276,7 +279,7 @@ sealed interface ProductLookup {
                 ))
             val price = when (store) {
                 "amazon.in" -> amazonPrice(body)
-                "flipkart.com" -> flipkartPrice(body)
+                "flipkart.com", "shopsy.in" -> flipkartPrice(body)
                 else -> priceKeys(store).firstNotNullOfOrNull { key -> priceFor(body, key) }
             }?.takeIf { it.isFinite() && it > 0 }
             if (unavailable) return Unavailable(price)
@@ -298,20 +301,34 @@ sealed interface ProductLookup {
                 .replace(Regex("<style[\\s\\S]*?</style>", RegexOption.IGNORE_CASE), " ")
                 .replace(Regex("<[^>]+>"), " ")
                 .replace(Regex("\\s+"), " ")
+
+            // Check explicit weight specifications first
+            val specWeight = Regex("(?:weight|net weight|gross weight|gold weight|product weight)\\s*[:=]?\\s*(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE)
+                .find(text)
+            if (specWeight != null) {
+                val amount = specWeight.groupValues[1].toDoubleOrNull()
+                val unit = specWeight.groupValues[2].lowercase()
+                if (amount != null && amount > 0) {
+                    val grams = if (unit == "mg") amount / 1000.0 else amount
+                    if (grams in 0.01..500.0) return grams
+                }
+            }
+
             val explicit = Regex("(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE)
                 .findAll(text)
                 .mapNotNull { match ->
                     val amount = match.groupValues[1].toDoubleOrNull() ?: return@mapNotNull null
                     val unit = match.groupValues[2].lowercase()
                     val grams = if (unit == "mg") amount / 1000.0 else amount
-                    grams.takeIf { it > 0 && it <= 1000 }
+                    grams.takeIf { it in 0.05..500.0 }
                 }
                 .toList()
             if (explicit.isNotEmpty()) return explicit.maxOrNull()
             val slug = Regex("(?:^|[-_/])(\\d+(?:\\.\\d+)?)\\s*-?\\s*(mg|gms|gm|grams|gram|g)(?=[-_/\\d]|$)", RegexOption.IGNORE_CASE)
                 .find(body)
             val amount = slug?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
-            return if (slug.groupValues[2].equals("mg", ignoreCase = true)) amount / 1000.0 else amount
+            val grams = if (slug.groupValues[2].equals("mg", ignoreCase = true)) amount / 1000.0 else amount
+            return grams.takeIf { it in 0.01..500.0 }
         }
 
         private fun priceKeys(store: String): List<String> = when (store) {

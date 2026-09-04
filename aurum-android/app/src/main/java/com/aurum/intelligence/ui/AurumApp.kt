@@ -365,7 +365,7 @@ private fun BrowserDashboard(
     showRefreshActivity: Boolean,
 ) {
     val recentStoreEvents = logs.asReversed()
-        .filter { it.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "tanishq") }
+        .filter { it.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in", "tanishq") }
         .filter { it.message.contains("Coverage") || it.message.contains("Existing prices preserved") || it.message.contains("Rendered bullion rate saved") }
         .distinctBy { it.store }
         .take(5)

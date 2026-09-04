@@ -56,11 +56,16 @@ data class DealCandidate(
 object ProductCalculations {
     // Single authoritative "trustworthy right now" window, shared by the Live quick filter and Deal
     // Radar so both mean the same thing: a live-priced observation older than this is not shown as
-    // currently live. Chosen to match the existing Deal Radar window rather than introduce a second one.
+    // currently live.
     const val LIVE_FRESHNESS_MILLIS = 24 * 60 * 60 * 1_000L
 
     fun isUnavailable(product: ProductEntity): Boolean =
-        product.status == "unavailable" || ProductAvailability.isUnavailableName(product.name)
+        product.status == "unavailable" ||
+            ProductAvailability.isUnavailableName(product.name) ||
+            product.name.contains("unserviceable", ignoreCase = true) ||
+            product.name.contains("not deliverable", ignoreCase = true) ||
+            product.name.contains("out of stock", ignoreCase = true) ||
+            (product.grams != null && product.grams <= 0)
 
     fun displayName(product: ProductEntity): String = ProductAvailability.displayName(product.name)
 

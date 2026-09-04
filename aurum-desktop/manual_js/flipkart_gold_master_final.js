@@ -4213,6 +4213,12 @@
   window.flipkartGold =
     GOLD;
 
+  window.shopsyProducts =
+    FINAL;
+
+  window.shopsyGold =
+    GOLD;
+
   window.flipkartIncomplete =
     INCOMPLETE;
 

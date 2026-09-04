@@ -887,6 +887,7 @@ private val MasterScript.storeName: String
         com.aurum.intelligence.browser.Retailer.Amazon -> "amazon.in"
         com.aurum.intelligence.browser.Retailer.Flipkart -> "flipkart.com"
         com.aurum.intelligence.browser.Retailer.Myntra -> "myntra.com"
+        com.aurum.intelligence.browser.Retailer.Shopsy -> "shopsy.in"
     }
 
 private fun executeMaster(
@@ -1007,45 +1008,46 @@ private fun retailerBridgeWrapper(master: MasterScript, sessionId: String): Stri
                     document.cookie = "pincode=$pincode; path=/; max-age=31536000; SameSite=Lax";
                     document.cookie = "ajio_pincode=$pincode; path=/; max-age=31536000; SameSite=Lax";
                     document.cookie = "mynt-ulc=pincode:$pincode; path=/; Secure; SameSite=Lax";
+                    document.cookie = "fk_pincode=$pincode; path=/; max-age=31536000; SameSite=Lax";
                     document.querySelectorAll('.ic-close, [data-testid="close-button"], .close-button, .modal-close, button.close, #pge-close-x, .pincode-modal-close').forEach(function(el) { el.click(); });
                 } catch (_) {}
             })();
             """.trimIndent(),
             null,
         )
-    repeat(40) {
-        if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
-            when (val state = webView.evaluateAjioReadiness()) {
-                RetailerReadiness.Ready -> {
-                    delay(2_500)
-                    return RetailerReadiness.Ready
+        repeat(80) {
+            if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
+                when (val state = webView.evaluateAjioReadiness()) {
+                    RetailerReadiness.Ready -> {
+                        delay(300)
+                        return RetailerReadiness.Ready
+                    }
+                    is RetailerReadiness.Blocked -> return state
+                    RetailerReadiness.Waiting, RetailerReadiness.Timeout -> Unit
                 }
-                is RetailerReadiness.Blocked -> return state
-                RetailerReadiness.Waiting, RetailerReadiness.Timeout -> Unit
+                delay(200)
+                return@repeat
             }
-            delay(500)
-            return@repeat
+            if (master.retailer == com.aurum.intelligence.browser.Retailer.Myntra && webView.evaluateMyntraReadiness()) {
+                delay(300)
+                return RetailerReadiness.Ready
+            }
+            val expression = when (master.retailer) {
+                com.aurum.intelligence.browser.Retailer.Ajio -> "false"
+                com.aurum.intelligence.browser.Retailer.Amazon ->
+                    "document.querySelectorAll('[data-component-type=\"s-search-result\"][data-asin]').length>0"
+                com.aurum.intelligence.browser.Retailer.Flipkart, com.aurum.intelligence.browser.Retailer.Shopsy ->
+                    "Array.from(document.querySelectorAll('a[href]')).some(a=>/[?&]pid=/.test(a.href)||/\\/p\\//.test(a.pathname))||document.readyState==='complete'"
+                com.aurum.intelligence.browser.Retailer.Myntra -> "false"
+            }
+            if (webView.evaluateBoolean(expression)) {
+                delay(300)
+                return RetailerReadiness.Ready
+            }
+            delay(200)
         }
-        if (master.retailer == com.aurum.intelligence.browser.Retailer.Myntra && webView.evaluateMyntraReadiness()) {
-            delay(1_500)
-            return RetailerReadiness.Ready
-        }
-        val expression = when (master.retailer) {
-            com.aurum.intelligence.browser.Retailer.Ajio -> "false"
-            com.aurum.intelligence.browser.Retailer.Amazon ->
-                "document.querySelectorAll('[data-component-type=\"s-search-result\"][data-asin]').length>0"
-            com.aurum.intelligence.browser.Retailer.Flipkart ->
-                "Array.from(document.querySelectorAll('a[href]')).some(a=>/[?&]pid=/.test(a.href)||/\\/p\\//.test(a.pathname))"
-            com.aurum.intelligence.browser.Retailer.Myntra -> "false"
-        }
-        if (webView.evaluateBoolean(expression)) {
-            delay(1_500)
-            return RetailerReadiness.Ready
-        }
-        delay(500)
+        return RetailerReadiness.Timeout
     }
-    return RetailerReadiness.Timeout
-}
 
 private suspend fun WebView.evaluateAjioReadiness(): RetailerReadiness =
     kotlinx.coroutines.suspendCancellableCoroutine { continuation ->

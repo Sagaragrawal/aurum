@@ -88,7 +88,7 @@ object ProductAvailability {
 }
 
 object RetailerUrlPolicy {
-    private val allowedHosts = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+    private val allowedHosts = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
 
     fun isAllowedProductUrl(store: String, value: String): Boolean = runCatching {
         val uri = java.net.URI(value)
@@ -107,7 +107,7 @@ object RetailerUrlPolicy {
 
 object BridgePayloadParser {
     private val json = Json { ignoreUnknownKeys = true }
-    private val stores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+    private val stores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
 
     fun parse(raw: String): BridgePayload {
         val root = json.parseToJsonElement(raw).jsonObject

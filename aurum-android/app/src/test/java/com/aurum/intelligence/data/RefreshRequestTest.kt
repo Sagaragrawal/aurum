@@ -6,7 +6,7 @@ import org.junit.Test
 class RefreshRequestTest {
     @Test
     fun `all resets scope to every available store`() {
-        val stores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+        val stores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
 
         assertEquals(stores, RefreshRequest.all().targetStores(stores))
     }
@@ -80,6 +80,6 @@ class RefreshRequestTest {
     )
 
     private companion object {
-        val allStores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com")
+        val allStores = setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")
     }
 }
