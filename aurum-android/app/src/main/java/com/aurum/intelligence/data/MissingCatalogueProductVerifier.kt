@@ -2,6 +2,9 @@ package com.aurum.intelligence.data
 
 import java.net.HttpURLConnection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
@@ -37,50 +40,121 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
         candidates: List<ProductEntity>,
         fetcher: suspend (String) -> ProductFetchResponse?,
         onProgress: suspend (Int, Int, ProductEntity) -> Unit,
-    ): MissingCatalogueProductResult {
+    ): MissingCatalogueProductResult = coroutineScope {
         var updated = 0
         var unavailable = 0
         var unchanged = 0
-        val details = mutableListOf<ProductRefreshDetail>()
-        candidates.forEachIndexed { index, product ->
-            if (index > 0) delay(REQUEST_DELAY_MS)
-            onProgress(index + 1, candidates.size, product)
-            when (val result = fetchWithRetry(product, fetcher)) {
-                is ProductLookup.Available -> {
-                    val now = System.currentTimeMillis()
-                    database.dao().upsertProduct(product.copy(
-                        name = result.name ?: product.name,
-                        brand = result.brand ?: product.brand,
-                        price = result.price,
-                        grams = result.grams ?: product.grams,
-                        couponPrice = null,
-                        status = "live",
-                        refreshMethod = result.refreshMethod,
-                        checkedAt = now,
-                        lastLiveAt = now,
-                    ))
-                    updated += 1
-                    details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "live")
+        val details = java.util.Collections.synchronizedList(mutableListOf<ProductRefreshDetail>())
+
+        val total = candidates.size
+        val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val retryQueue = java.util.Collections.synchronizedList(mutableListOf<ProductEntity>())
+
+        // PASS 1: Fetch candidates concurrently
+        candidates.chunked(PARALLEL_CONCURRENCY).forEach { chunk ->
+            chunk.map { product ->
+                async {
+                    val currentCount = completedCount.incrementAndGet()
+                    onProgress(currentCount, total, product)
+                    when (val result = fetchWithRetry(product, fetcher)) {
+                        is ProductLookup.Available -> {
+                            val now = System.currentTimeMillis()
+                            database.dao().upsertProduct(product.copy(
+                                name = result.name ?: product.name,
+                                brand = result.brand ?: product.brand,
+                                price = result.price,
+                                grams = result.grams ?: product.grams,
+                                couponPrice = null,
+                                status = "live",
+                                refreshMethod = result.refreshMethod,
+                                checkedAt = now,
+                                lastLiveAt = now,
+                            ))
+                            synchronized(details) {
+                                updated += 1
+                                details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "live")
+                            }
+                        }
+                        is ProductLookup.Unavailable -> {
+                            val now = System.currentTimeMillis()
+                            database.dao().upsertProduct(product.copy(
+                                price = result.price ?: product.price,
+                                couponPrice = null,
+                                status = "unavailable",
+                                refreshMethod = "${product.store}-product-api",
+                                checkedAt = now,
+                            ))
+                            synchronized(details) {
+                                unavailable += 1
+                                details += ProductRefreshDetail(product.canonicalUrl, result.price ?: product.price, product.grams, product.karat, "unavailable")
+                            }
+                        }
+                        ProductLookup.Unknown -> {
+                            // Queue transient failure for retry at end of queue
+                            retryQueue.add(product)
+                        }
+                    }
                 }
-                is ProductLookup.Unavailable -> {
-                    val now = System.currentTimeMillis()
-                    database.dao().upsertProduct(product.copy(
-                        price = result.price ?: product.price,
-                        couponPrice = null,
-                        status = "unavailable",
-                        refreshMethod = "${product.store}-product-api",
-                        checkedAt = now,
-                    ))
-                    unavailable += 1
-                    details += ProductRefreshDetail(product.canonicalUrl, result.price ?: product.price, product.grams, product.karat, "unavailable")
-                }
-                ProductLookup.Unknown -> {
-                    unchanged += 1
-                    details += ProductRefreshDetail(product.canonicalUrl, null, product.grams, product.karat, "unresolved")
-                }
+            }.awaitAll()
+        }
+
+        // PASS 2: Retry failed candidates at the end of the queue
+        if (retryQueue.isNotEmpty()) {
+            retryQueue.chunked(PARALLEL_CONCURRENCY).forEach { chunk ->
+                chunk.map { product ->
+                    async {
+                        when (val result = fetchWithRetry(product, fetcher)) {
+                            is ProductLookup.Available -> {
+                                val now = System.currentTimeMillis()
+                                database.dao().upsertProduct(product.copy(
+                                    name = result.name ?: product.name,
+                                    brand = result.brand ?: product.brand,
+                                    price = result.price,
+                                    grams = result.grams ?: product.grams,
+                                    couponPrice = null,
+                                    status = "live",
+                                    refreshMethod = result.refreshMethod,
+                                    checkedAt = now,
+                                    lastLiveAt = now,
+                                ))
+                                synchronized(details) {
+                                    updated += 1
+                                    details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "live")
+                                }
+                            }
+                            is ProductLookup.Unavailable -> {
+                                val now = System.currentTimeMillis()
+                                database.dao().upsertProduct(product.copy(
+                                    price = result.price ?: product.price,
+                                    couponPrice = null,
+                                    status = "unavailable",
+                                    refreshMethod = "${product.store}-product-api",
+                                    checkedAt = now,
+                                ))
+                                synchronized(details) {
+                                    unavailable += 1
+                                    details += ProductRefreshDetail(product.canonicalUrl, result.price ?: product.price, product.grams, product.karat, "unavailable")
+                                }
+                            }
+                            ProductLookup.Unknown -> {
+                                val now = System.currentTimeMillis()
+                                database.dao().upsertProduct(product.copy(
+                                    status = "unavailable",
+                                    refreshMethod = "${product.store}-missing-catalogue",
+                                    checkedAt = now,
+                                ))
+                                synchronized(details) {
+                                    unavailable += 1
+                                    details += ProductRefreshDetail(product.canonicalUrl, product.price, product.grams, product.karat, "unavailable")
+                                }
+                            }
+                        }
+                    }
+                }.awaitAll()
             }
         }
-        return MissingCatalogueProductResult(candidates.size, updated, unavailable, unchanged, details)
+
+        MissingCatalogueProductResult(candidates.size, updated, unavailable, unchanged, details)
     }
 
     suspend fun refreshProduct(productId: String, fetcher: suspend (String) -> ProductFetchResponse?): ProductLookup {
@@ -133,6 +207,7 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
 
     private companion object {
         const val REQUEST_DELAY_MS = 300L
+        const val PARALLEL_CONCURRENCY = 8
     }
 }
 
@@ -159,7 +234,25 @@ sealed interface ProductLookup {
     data object Unknown : ProductLookup
 
     companion object {
-        private val unavailableTerms = listOf("out of stock", "sold out", "no longer available", "product is not available", "currently unavailable", "not deliverable at your location")
+        private val unavailableTerms = listOf(
+            "out of stock",
+            "sold out",
+            "no longer available",
+            "product is not available",
+            "currently unavailable",
+            "not deliverable at your location",
+            "not deliverable",
+            "change address",
+            "check deliverability",
+            "cannot be delivered",
+            "item is unavailable",
+            "not available at",
+            "enter pincode",
+            "please enter pincode",
+            "servicable: false",
+            "deliverable: false",
+            "isAvailable\":false"
+        )
 
         fun parse(store: String, statusCode: Int, body: String, sourceUrl: String = ""): ProductLookup {
             if (statusCode == HttpURLConnection.HTTP_NOT_FOUND) return Unavailable()
@@ -169,19 +262,30 @@ sealed interface ProductLookup {
                 body.contains("captcha", ignoreCase = true)
             ) return Unknown
             val unavailable = unavailableTerms.any { body.contains(it, ignoreCase = true) } ||
-                (store == "myntra.com" && Regex("\\\"outOfStock\\\"\\s*:\\s*true", RegexOption.IGNORE_CASE).containsMatchIn(body)) ||
-                (store == "ajio.com" && (body.contains("\"purchasable\":false") || body.contains("\"stockLevelStatus\":\"outOfStock\"", ignoreCase = true)))
+                (store == "myntra.com" && (
+                    body.contains("\"outOfStock\":true", ignoreCase = true) ||
+                    body.contains("\"outOfStock\": true", ignoreCase = true) ||
+                    body.contains("\"buyNowEnabled\":false", ignoreCase = true) ||
+                    body.contains("\"buyNowEnabled\": false", ignoreCase = true)
+                )) ||
+                (store == "ajio.com" && (
+                    body.contains("\"purchasable\":false", ignoreCase = true) ||
+                    body.contains("\"stockLevelStatus\":\"outOfStock\"", ignoreCase = true) ||
+                    body.contains("\"outOfStock\":true", ignoreCase = true) ||
+                    body.contains("\"fnlColorVariantData\":null", ignoreCase = true)
+                ))
             val price = when (store) {
                 "amazon.in" -> amazonPrice(body)
                 "flipkart.com" -> flipkartPrice(body)
                 else -> priceKeys(store).firstNotNullOfOrNull { key -> priceFor(body, key) }
             }?.takeIf { it.isFinite() && it > 0 }
             if (unavailable) return Unavailable(price)
-            val grams = extractGrams("$body $sourceUrl")
+            val parsedName = stringFor(body, "name") ?: stringFor(body, "productDisplayName") ?: stringFor(body, "title")
+            val grams = parsedName?.let { extractGrams(it) } ?: extractGrams("$body $sourceUrl")
             if (price == null) return Unknown
             return Available(
                 price = price,
-                name = stringFor(body, "name"),
+                name = parsedName,
                 brand = stringFor(body, "brand"),
                 grams = grams,
                 refreshMethod = if (store in setOf("ajio.com", "myntra.com")) "$store-product-api" else "$store-product-page",

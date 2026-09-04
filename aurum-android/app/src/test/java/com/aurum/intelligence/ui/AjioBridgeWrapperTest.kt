@@ -20,7 +20,7 @@ class AjioBridgeWrapperTest {
         )
 
         assertTrue(js.contains("\"test-session-123\""))
-        assertTrue(js.contains("headers.set('X-Aurum-Refresh-Session', \"test-session-123\")"))
+        assertTrue(js.contains("headersObj['X-Aurum-Refresh-Session'] = \"test-session-123\""))
         assertTrue(js.contains("'X-Aurum-Refresh-Session': \"test-session-123\""))
         assertTrue(js.contains("const aurumBridgePath = 'http://localhost:8788/api/browser-bridge/products'"))
         assertTrue(js.contains("fetch('http://localhost:8788/api/browser-bridge/products'"))
@@ -36,7 +36,7 @@ class AjioBridgeWrapperTest {
         )
 
         assertTrue(js.contains("\"test-session-'\\\\\\n\\r\\t-123\""))
-        assertTrue(js.contains("headers.set('X-Aurum-Refresh-Session', \"test-session-'\\\\\\n\\r\\t-123\")"))
+        assertTrue(js.contains("headersObj['X-Aurum-Refresh-Session'] = \"test-session-'\\\\\\n\\r\\t-123\""))
         assertTrue(js.contains("'X-Aurum-Refresh-Session': \"test-session-'\\\\\\n\\r\\t-123\""))
         assertFalse(js.contains("aurumSession"))
     }

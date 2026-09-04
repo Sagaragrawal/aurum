@@ -103,13 +103,15 @@ window.ajioDone = (async () => {
     searchConcurrency: 1,
     searchDelayMs: 300,
     pdpConcurrency: 2,
-    enablePdpEnrichment: true,
+    pdpDelayMs: 300,
 
     searchTimeoutMs: 20000,
     pdpTimeoutMs: 8000,
 
     retries: 3,
     pdpRetries: 1,
+
+    transientBackoffMs: [1000, 2000, 4000],
 
     /*
      * We want requested gold fields complete.
@@ -130,6 +132,8 @@ window.ajioDone = (async () => {
     preferCurrentPageRequest: true
   };
 
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
   const startedAt = performance.now();
 
   const PRODUCT_MAP = new Map();
@@ -143,6 +147,7 @@ window.ajioDone = (async () => {
   let searchRequests = 0;
   let pdpRequests = 0;
   let accessDenied = false;
+  let pdpAccessDenied = false;
 
   function isCancelled() {
     return cancelled ||
@@ -274,10 +279,10 @@ window.ajioDone = (async () => {
    ******************************************************************/
 
   const SILVER_RE =
-    /\b(?:silver|sterling|925\s*silver|silverware)\b/i;
+    /\b(?:silver|siilver|sliver|sterling|925\s*silver|silverware|chandi)\b/i;
 
   const NON_GOLD_RE =
-    /\b(?:platinum|brass|copper|bronze|steel|stainless\s+steel|zinc|alloy|aluminium|aluminum|iron|plastic|wood|wooden)\b/i;
+    /\b(?:silver|siilver|sliver|chandi|platinum|brass|copper|bronze|steel|stainless\s+steel|zinc|alloy|aluminium|aluminum|iron|plastic|wood|wooden)\b/i;
 
   const GOLD_PLATED_RE =
     /\b(?:gold[\s-]*plated|gold[\s-]*toned?|gold[\s-]*finish|gold[\s-]*colou?r(?:ed)?|gold[\s-]*polished|gold[\s-]*coated)\b/i;
@@ -1414,6 +1419,14 @@ window.ajioDone = (async () => {
       weightGrams:
         weight.total,
 
+      unavailable:
+        Boolean(
+          raw?.purchasable === false ||
+          raw?.stockLevelStatus === "outOfStock" ||
+          raw?.fnlColorVariantData?.outOfStock === true ||
+          raw?.outOfStock === true
+        ),
+
       unitWeightGrams:
         weight.unit,
 
@@ -1769,6 +1782,10 @@ window.ajioDone = (async () => {
 
         clearTimeout(timer);
 
+        if (r.status === 401 || r.status === 403) {
+          return r;
+        }
+
         if (
           !r.ok &&
           (r.status === 429 || r.status >= 500) &&
@@ -1777,8 +1794,8 @@ window.ajioDone = (async () => {
           const retryAfter = Number(r.headers.get("retry-after"));
           const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
             ? retryAfter * 1000
-            : Math.min(8000, 1000 * (2 ** attempt));
-          await new Promise(resolve => setTimeout(resolve, waitMs));
+            : (CFG.transientBackoffMs[attempt] ?? 4000);
+          await sleep(waitMs);
           continue;
         }
 
@@ -1983,7 +2000,7 @@ window.ajioDone = (async () => {
 
     async function runner() {
       while (true) {
-        if (accessDenied || isCancelled()) return;
+        if (accessDenied || pdpAccessDenied || isCancelled()) return;
         const i =
           cursor++;
 
@@ -2436,9 +2453,10 @@ window.ajioDone = (async () => {
       /\b(?:24|23|22|21|20|18|14|10|9)\s*(?:k|kt|karat|carat)\b/i
         .test(text);
 
-    // Bare fineness (999/995/916) is discovery evidence only,
-    // not sufficient proof of gold because silver can also be 999.
-    return explicitGold || goldKarat;
+    const finenessProof =
+      /(?:^|[^0-9])(?:999\.9\+?|999|995|916\.7|916|875|750)(?!\d)/i.test(text);
+
+    return explicitGold || goldKarat || finenessProof;
   }
 
   /******************************************************************
@@ -2604,6 +2622,10 @@ window.ajioDone = (async () => {
         );
 
       if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          pdpAccessDenied = true;
+          console.error(`⛔ AJIO PDP access denied for ${p.id} (HTTP ${r.status}). Halting PDP enrichment.`);
+        }
         return {
           ok: false,
           status: r.status,
@@ -2846,6 +2868,10 @@ window.ajioDone = (async () => {
     CFG.pdpConcurrency,
 
     async p => {
+      if (pdpAccessDenied || isCancelled()) return;
+      if (CFG.pdpDelayMs > 0) {
+        await sleep(CFG.pdpDelayMs);
+      }
       const data =
         await fetchPDP(p);
 

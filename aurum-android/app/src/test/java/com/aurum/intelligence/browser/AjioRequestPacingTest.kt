@@ -12,16 +12,16 @@ class AjioRequestPacingTest {
 
     @Test
     fun initialSettleAndCategoryCooldownAreConservative() {
-        assertEquals(5_000L, AjioRequestPacing.MASTER_SETTLE_MS)
-        assertEquals(10_000L, AjioRequestPacing.CATEGORY_COOLDOWN_MS)
+        assertEquals(2_000L, AjioRequestPacing.MASTER_SETTLE_MS)
+        assertEquals(3_000L, AjioRequestPacing.CATEGORY_COOLDOWN_MS)
     }
 
     @Test
     fun searchAndPdpAreSerialAndPaced() {
         assertTrue(masterSource.contains("searchConcurrency: 1"))
-        assertTrue(masterSource.contains("searchDelayMs: 1000"))
-        assertTrue(masterSource.contains("pdpConcurrency: 1"))
-        assertTrue(masterSource.contains("pdpDelayMs: 1000"))
+        assertTrue(masterSource.contains("searchDelayMs: 300"))
+        assertTrue(masterSource.contains("pdpConcurrency: 2"))
+        assertTrue(masterSource.contains("pdpDelayMs: 300"))
     }
 
     @Test

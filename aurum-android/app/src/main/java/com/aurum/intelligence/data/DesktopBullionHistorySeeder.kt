@@ -19,12 +19,16 @@ class DesktopBullionHistorySeeder(
         }
         try {
             FILES.forEach { name ->
-                context.assets.open("seed/history/$name").use { source ->
-                    File(directory, name).outputStream().use(source::copyTo)
+                runCatching {
+                    context.assets.open("seed/history/$name").use { source ->
+                        File(directory, name).outputStream().use(source::copyTo)
+                    }
                 }
             }
+            val seedDbFile = File(directory, "aurum.sqlite")
+            if (!seedDbFile.exists()) return@withContext 0
             val source = SQLiteDatabase.openDatabase(
-                File(directory, "aurum.sqlite").path,
+                seedDbFile.path,
                 null,
                 SQLiteDatabase.OPEN_READONLY,
             )

@@ -217,7 +217,6 @@ class BridgeRepository(private val database: AurumDatabase) {
                 return@forEach
             }
             val existing = retailerMatch ?: urlMatch
-            val hasCurrentCriticalMetadata = candidate.grams != null && candidate.karat != null
             val product = ProductEntity(
                 id = existing?.id ?: UUID.randomUUID().toString(),
                 store = payload.store,
@@ -232,12 +231,11 @@ class BridgeRepository(private val database: AurumDatabase) {
                 couponPrice = candidate.couponPrice,
                 status = when {
                     candidate.unavailable -> "unavailable"
-                    hasCurrentCriticalMetadata -> "live"
-                    else -> "unverified"
+                    else -> "live"
                 },
                 refreshMethod = "${payload.store}-browser-bridge",
                 checkedAt = now,
-                lastLiveAt = if (hasCurrentCriticalMetadata && !candidate.unavailable) now else existing?.lastLiveAt ?: 0,
+                lastLiveAt = if (!candidate.unavailable) now else existing?.lastLiveAt ?: 0,
                 manuallyEditedAt = existing?.manuallyEditedAt,
             )
             database.dao().upsertProduct(product)

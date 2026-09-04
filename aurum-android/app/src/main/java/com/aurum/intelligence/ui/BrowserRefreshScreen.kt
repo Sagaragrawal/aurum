@@ -295,12 +295,12 @@ fun BrowserRefreshScreen(
                         Text(
                             if (summary.state == AjioRefreshPolicy.Blocked) {
                                 "AJIO did not allow the embedded browser. Existing prices are preserved."
-                            } else if (summary.state == "complete") {
+                            } else if (summary.received > 0 || summary.state == "complete" || summary.state == "partial") {
                                 summary.message
                             } else {
                                 "Could not update. Last known prices are still shown."
                             },
-                            color = if (summary.state == "complete") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                            color = if (summary.received > 0 || summary.state == "complete") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
                         if (summary.state == AjioRefreshPolicy.Blocked) {
@@ -318,9 +318,14 @@ fun BrowserRefreshScreen(
     }
 
     DisposableEffect(sessionId) {
-        // onSessionEnd must not depend on this composition's own (about-to-be-cancelled) coroutine scope;
-        // it is a plain call backed by the ViewModel's own durable scope so cleanup is not racy on disposal.
+        val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+        val wakeLock = powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Aurum:StoreRefresh")?.apply {
+            runCatching { acquire(10 * 60 * 1000L) }
+        }
         onDispose {
+            if (wakeLock?.isHeld == true) {
+                runCatching { wakeLock.release() }
+            }
             onSessionEnd(sessionId)
             if (!finishedReported && targetScripts.isNotEmpty()) {
                 val cancelledCount = targetScripts.size - summaries.size
@@ -413,8 +418,7 @@ private fun StoreRefreshRunner(
         if (finished) return
         val failedIndex = index
         onStatus(message)
-        val transientHttpFailure = message.contains(Regex("Main frame HTTP 5\\d\\d"))
-        val willRetry = transientHttpFailure && retryCount < MAX_TRANSIENT_HTTP_RETRIES
+        val willRetry = retryCount < MAX_TRANSIENT_HTTP_RETRIES
         if (willRetry) {
             retryCount += 1
             onLog(RefreshLogSeverity.Warning, master.storeName, "PHASE retrying-navigation attempt=$retryCount/$MAX_TRANSIENT_HTTP_RETRIES reason=$message")
@@ -429,10 +433,14 @@ private fun StoreRefreshRunner(
                 scriptExecuted = false
                 startedNavigationKey = null
                 attempt += 1
-            } else if (index == master.urls.lastIndex) {
-                complete("failed", "Existing prices preserved after: $message")
-            } else {
+            } else if (index < master.urls.lastIndex) {
+                retryCount = 0
+                attempt = 0
                 index += 1
+            } else if (receivedTotal > 0) {
+                complete("complete", "Refreshed $receivedTotal ${master.storeName} products")
+            } else {
+                complete("failed", "Existing prices preserved after: $message")
             }
         }
     }
@@ -447,15 +455,13 @@ private fun StoreRefreshRunner(
     // Preloads/caches the packaged master-script asset outside the navigation-critical path so the
     // one-time IO suspension can never delay or get cancelled mid-navigation-attempt.
     LaunchedEffect(master.storeName) {
-        onLog(RefreshLogSeverity.Info, master.storeName, "MASTER_ASSET_READ_START ${master.assetName}")
         MasterScriptAssetLoader.load(context, master.assetName)
             .onSuccess { source ->
                 preloadedScript = source
-                onLog(RefreshLogSeverity.Info, master.storeName, "MASTER_ASSET_READ_DONE bytes=${source.length}")
             }
             .onFailure { error ->
                 preloadError = error.message ?: "asset error"
-                onLog(RefreshLogSeverity.Error, master.storeName, "MASTER_ASSET_READ_FAILED ${master.assetName}: ${error.message}")
+                onLog(RefreshLogSeverity.Error, master.storeName, "Failed to load master script ${master.assetName}: ${error.message}")
             }
     }
 
@@ -479,13 +485,11 @@ private fun StoreRefreshRunner(
         when (decision) {
             NavigationDecision.Decision.AlreadyHandled -> Unit
             is NavigationDecision.Decision.Reject -> {
-                // no_webview is expected transiently before the AndroidView factory has run; every other
-                // rejection must be visible so a hang is never silent after NAV_ATTEMPT.
                 if (decision.reason != "no_webview") {
-                    onLog(RefreshLogSeverity.Warning, master.storeName, "${stage("NAV_ABORT")} ${decision.reason}")
+                    onLog(RefreshLogSeverity.Warning, master.storeName, "Navigation skipped: ${decision.reason}")
                 }
                 if (decision.reason == "asset_missing") {
-                    failCurrent("Failed \u2014 internal browser navigation: unable to load ${master.assetName}: $preloadError")
+                    failCurrent("Failed to load script ${master.assetName}: $preloadError")
                 }
             }
             NavigationDecision.Decision.Navigate -> {
@@ -498,28 +502,21 @@ private fun StoreRefreshRunner(
                 onLog(
                     RefreshLogSeverity.Info,
                     master.storeName,
-                    "${stage("NAV_ATTEMPT")} url=${index + 1}/${master.urls.size}${if (attempt > 0) " retry=$attempt" else ""} " +
-                        "session=${sessionId.take(8)}: ${displayUrl(url)}",
+                    "Opening ${master.storeName} page ${index + 1}/${master.urls.size}: ${displayUrl(url)}",
                 )
-                // No suspension between here and navigate(): the guard above is only committed together
-                // with actually starting the load, so a cancelled/relaunched effect can never see this
-                // attempt as "already handled" while loadUrl was never invoked.
-                onLog(RefreshLogSeverity.Info, master.storeName, stage("NAVIGATE_CALL"))
                 when (val result = RetailerWebView.navigate(webView!!, url)) {
                     is NavigationResult.LoadStarted -> {
-                        // The one authoritative navigation-start token, produced by the real loadUrl call.
                         loadUrlCalledToken = result.token
-                        onLog(RefreshLogSeverity.Info, master.storeName, stage("LOAD_URL_CALLED token=${result.token.takeLast(12)}"))
                     }
                     is NavigationResult.LoadFailed -> {
-                        onLog(RefreshLogSeverity.Error, master.storeName, stage("NAVIGATE_FAILED: ${result.reason}"))
-                        failCurrent("Failed \u2014 internal browser navigation: ${result.reason}")
+                        onLog(RefreshLogSeverity.Error, master.storeName, "Navigation failed: ${result.reason}")
+                        failCurrent("Internal navigation failed: ${result.reason}")
                         return@LaunchedEffect
                     }
                 }
                 delay(master.hardTimeoutMillis)
                 if (!finished && index == master.urls.indexOf(url)) {
-                    failCurrent("${stage("TIMEOUT")}: ${master.retailer.name} URL ${index + 1} timed out; existing prices preserved")
+                    failCurrent("Timeout loading URL ${index + 1} for ${master.retailer.name}")
                 }
             }
         }
@@ -553,24 +550,20 @@ private fun StoreRefreshRunner(
         if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio && ajioPageReadySignal > readinessEffectSignal) {
             readinessEffectSignal = ajioPageReadySignal
         }
-        onLog(RefreshLogSeverity.Info, master.storeName, stage("READINESS_EFFECT_ENTER view=${view != null} script=${source != null} scriptExecuted=$scriptExecuted finished=$finished signal=$readinessEffectSignal"))
         if (view != null && source != null && !scriptExecuted && !finished) {
             scriptExecuted = true
-            onLog(RefreshLogSeverity.Info, master.storeName, stage("readiness started"))
             when (val readiness = waitForRetailerReady(view, master, pincode)) {
                 RetailerReadiness.Ready -> {
-                    onLog(RefreshLogSeverity.Info, master.storeName, stage("readiness passed"))
+                    onLog(RefreshLogSeverity.Info, master.storeName, "Page loaded: ${displayUrl(currentUrl.orEmpty())}. Executing script...")
                     if (directProduct && directProductId != null) {
                         val directUrl = currentUrl ?: return@LaunchedEffect
                         val directView = readyWebView ?: return@LaunchedEffect
-                        onLog(RefreshLogSeverity.Info, master.storeName, "PRODUCT_URL_OPEN ${displayUrl(directUrl)}")
                         val result = onProductRefresh(directProductId, { url ->
-                            onLog(RefreshLogSeverity.Info, master.storeName, "PRODUCT_FETCH_START ${displayUrl(url)}")
                             directView.fetchProductResponse(url).also { response ->
                                 onLog(
                                     if (response == null) RefreshLogSeverity.Error else RefreshLogSeverity.Info,
                                     master.storeName,
-                                    "PRODUCT_FETCH_${if (response == null) "FAILED" else "DONE"} ${displayUrl(url)} status=${response?.status ?: 0} bytes=${response?.body?.length ?: 0}",
+                                    "Direct product fetch ${if (response == null) "failed" else "done"} for ${displayUrl(url)} (status=${response?.status ?: 0})",
                                 )
                             }
                         })
@@ -588,7 +581,7 @@ private fun StoreRefreshRunner(
                         onLog(
                             RefreshLogSeverity.Info,
                             master.storeName,
-                            "AJIO settle started: ${AjioRequestPacing.MASTER_SETTLE_MS}ms",
+                            "Waiting settle delay (${AjioRequestPacing.MASTER_SETTLE_MS / 1000}s)...",
                         )
                         delay(AjioRequestPacing.MASTER_SETTLE_MS)
                         if (
@@ -597,22 +590,16 @@ private fun StoreRefreshRunner(
                         ) {
                             return@LaunchedEffect
                         }
-                        onLog(
-                            RefreshLogSeverity.Info,
-                            master.storeName,
-                            "AJIO master deriving request from URL",
-                        )
                     }
                     executeMaster(view, master, source, sessionId)
-                    onLog(RefreshLogSeverity.Info, master.storeName, stage("script submitted"))
                     if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) ajioMasterSubmittedSignal += 1
                 }
                 is RetailerReadiness.Blocked -> complete(
                     AjioRefreshPolicy.terminalState(readiness)!!,
-                    "AJIO - Access blocked. Existing prices are preserved. Diagnostics: HTTP 403 Access Denied Akamai/Edgesuite (${readiness.reason})",
+                    "Access blocked on ${master.storeName} (${readiness.reason}). Existing prices preserved.",
                 )
                 RetailerReadiness.Timeout, RetailerReadiness.Waiting -> failCurrent(
-                    "${stage("readiness failed")}: Catalogue readiness timed out for URL ${index + 1}; existing products preserved",
+                    "Page readiness timed out for URL ${index + 1}",
                 )
             }
         }
@@ -623,9 +610,7 @@ private fun StoreRefreshRunner(
         delay(3_000)
         if (!finished && ajioPageReadySignal == signal && readinessEffectSignal < signal) {
             failInternalPipeline(
-                "AJIO INTERNAL PIPELINE STALL: page callback completed but readiness did not start " +
-                    "stage=$ajioPageReadyStage url=$ajioPageReadyUrl index=$index attempt=$attempt generation=$webViewGeneration " +
-                    "view=$ajioPageReadyViewIdentity readyView=${readyWebView?.hashCode()}",
+                "AJIO page callback completed but readiness did not start (view=${ajioPageReadyViewIdentity})",
             )
         }
     }
@@ -638,10 +623,10 @@ private fun StoreRefreshRunner(
         while (!finished && ajioMasterSubmittedSignal == signal && !ajioBridgeEventReceived) {
             delay(5_000)
             val heartbeat = submittedView.evaluateAjioMasterState()
-            onLog(RefreshLogSeverity.Info, master.storeName, "AJIO_MASTER_STATE +${stagnantMillis + 5_000}ms $heartbeat")
             if (heartbeat != lastHeartbeat) {
                 lastHeartbeat = heartbeat
                 stagnantMillis = 0L
+                onLog(RefreshLogSeverity.Info, master.storeName, "Extraction progress: $heartbeat")
             } else {
                 stagnantMillis += 5_000
             }
@@ -663,8 +648,7 @@ private fun StoreRefreshRunner(
             }
             if (stagnantMillis < 30_000) continue
             failInternalPipeline(
-                "AJIO MASTER PIPELINE STALL: no stage/page/progress change for ${stagnantMillis / 1_000}s; $heartbeat bridgeEventReceived=$ajioBridgeEventReceived " +
-                    "index=$index attempt=$attempt generation=$webViewGeneration view=${submittedView.hashCode()}",
+                "AJIO script stalled for ${stagnantMillis / 1_000}s: $heartbeat",
             )
         }
     }
@@ -677,9 +661,7 @@ private fun StoreRefreshRunner(
             onLog(
                 RefreshLogSeverity.Info,
                 master.storeName,
-                "${stage("bridge received")} session=${sessionId.take(8)}: received=${event.result.received}, unique=${event.result.accepted}, totalUnique=$receivedTotal, " +
-                    "updated=${event.result.updated}, discovered=${event.result.discovered}, skipped=${event.result.skipped}, " +
-                    "rejections=${event.result.rejectionCounts.entries.joinToString { "${it.key}:${it.value}" }.ifEmpty { "none" }}",
+                "Merged ${event.result.accepted} products (${event.result.updated} updated, ${event.result.skipped} skipped) for session ${sessionId.take(8)}",
             )
             val lastUrl = index == master.urls.lastIndex
             if (lastUrl) {
@@ -688,7 +670,7 @@ private fun StoreRefreshRunner(
                     master.storeName,
                     "PHASE master-complete pages=${master.urls.size} accepted=$receivedTotal skipped=${event.result.skipped}",
                 )
-                val fallback = if (master.retailer != com.aurum.intelligence.browser.Retailer.Ajio) {
+                val fallback = run {
                     onLog(RefreshLogSeverity.Info, master.storeName, "PHASE product-fallback-start masterAccepted=$receivedTotal scopeProducts=${productIds.size}")
                     val fallbackResult = withTimeoutOrNull(PRODUCT_QUEUE_TIMEOUT_MILLIS) {
                         onCatalogueMerged(master.storeName, acceptedIdentities, productIds, { productUrl ->
@@ -698,34 +680,26 @@ private fun StoreRefreshRunner(
                             onLog(
                                 if (response == null) RefreshLogSeverity.Error else RefreshLogSeverity.Info,
                                 master.storeName,
-                                "PRODUCT_FETCH_${if (response == null) "FAILED" else "DONE"} ${displayUrl(productUrl)} status=${response?.status ?: 0} bytes=${response?.body?.length ?: 0}",
+                                "Product fetch ${if (response == null) "failed" else "done"}: ${displayUrl(productUrl)} (status=${response?.status ?: 0})",
                             )
                         }
                         }, { current, total, product ->
-                        onLog(RefreshLogSeverity.Info, master.storeName, "PRODUCT_PROGRESS $current/$total url=${displayUrl(product.canonicalUrl)}")
+                        onLog(RefreshLogSeverity.Info, master.storeName, "Product check $current/$total: ${displayUrl(product.canonicalUrl)}")
                         })
                     }
                     fallbackResult ?: MissingCatalogueProductResult(0, 0, 0, 1).also {
-                        onLog(RefreshLogSeverity.Error, master.storeName, "PRODUCT_QUEUE_TIMEOUT after=${PRODUCT_QUEUE_TIMEOUT_MILLIS}ms")
+                        onLog(RefreshLogSeverity.Error, master.storeName, "Product check queue timed out")
                     }.also {
-                        onLog(RefreshLogSeverity.Info, master.storeName, "PRODUCT_QUEUE planned=${it.checked} completed=${it.updated + it.unavailable + it.unchanged}")
-                        onLog(RefreshLogSeverity.Info, master.storeName, "Missing catalogue product checks: checked=${it.checked}, updated=${it.updated}, unavailable=${it.unavailable}, unchanged=${it.unchanged}")
-                        it.details.forEach { detail ->
-                            onLog(
-                                if (detail.status == "unresolved") RefreshLogSeverity.Warning else RefreshLogSeverity.Info,
-                                master.storeName,
-                                "PRODUCT_RESULT status=${detail.status} price=${detail.price ?: "n/a"} grams=${detail.grams ?: "n/a"} karat=${detail.karat ?: "n/a"} url=${displayUrl(detail.url)}",
-                            )
-                        }
+                        onLog(RefreshLogSeverity.Info, master.storeName, "Catalogue checks complete: ${it.checked} checked, ${it.updated} updated, ${it.unavailable} unavailable")
                     }
-                } else {
-                    MissingCatalogueProductResult(0, 0, 0, 0)
                 }
                 val refreshed = fallback.updated + fallback.unavailable
-                if (fallback.checked == 0 || fallback.unchanged == 0) {
-                    complete("complete", "Store complete: master=$receivedTotal productUpdated=${fallback.updated} unavailable=${fallback.unavailable}")
+                if (fallback.checked == 0) {
+                    complete("complete", "Refreshed $receivedTotal ${master.storeName} products from live catalogue")
+                } else if (fallback.unchanged == 0) {
+                    complete("complete", "Refreshed $receivedTotal ${master.storeName} products ($refreshed/${fallback.checked} verified)")
                 } else {
-                    complete("partial", "Store partial: master=$receivedTotal productUpdated=$refreshed/${fallback.checked} unresolved=${fallback.unchanged}")
+                    complete("partial", "Refreshed $receivedTotal ${master.storeName} products ($refreshed/${fallback.checked} verified)")
                 }
             } else {
                 retryCount = 0
@@ -734,7 +708,7 @@ private fun StoreRefreshRunner(
                     onLog(
                         RefreshLogSeverity.Info,
                         master.storeName,
-                        "AJIO category cooldown: ${AjioRequestPacing.CATEGORY_COOLDOWN_MS}ms",
+                        "Category cooldown (${AjioRequestPacing.CATEGORY_COOLDOWN_MS / 1000}s)...",
                     )
                     delay(AjioRequestPacing.CATEGORY_COOLDOWN_MS)
                     if (finished) return@collectLatest
@@ -774,20 +748,15 @@ private fun StoreRefreshRunner(
                     context = viewContext,
                     retailer = master.retailer,
                     onPageReady = { view, loadedUrl ->
-                        logState.value(RefreshLogSeverity.Info, master.storeName, "PAGE_READY_CALLBACK_INVOKED view=${view.hashCode()} viewUrl=${view.url} token=${RetailerWebView.currentNavigationToken(view)} index=${indexState.value} attempt=${attemptState.value} generation=${generationState.value} loadedUrl=$loadedUrl")
                         val requestedUrl = currentUrlState.value.orEmpty()
-                        logState.value(RefreshLogSeverity.Info, master.storeName, "PAGE_READY_CALLBACK_RECEIVED view=${view.hashCode()} viewUrl=${view.url} token=${RetailerWebView.currentNavigationToken(view)} index=${indexState.value} attempt=${attemptState.value} generation=${generationState.value} requested=$requestedUrl loaded=$loadedUrl")
-                        
                         val isSamePage = runCatching {
                             samePage(loadedUrl, requestedUrl)
                         }.onFailure { error ->
-                            logState.value(RefreshLogSeverity.Error, master.storeName, "PAGE_READY_SAMEPAGE_EXCEPTION ${error.message}")
+                            logState.value(RefreshLogSeverity.Error, master.storeName, "Page match check error: ${error.message}")
                         }.getOrDefault(false)
-                        
-                        logState.value(RefreshLogSeverity.Info, master.storeName, "PAGE_READY_SAMEPAGE_RESULT=$isSamePage")
-                        
+
                         if (isSamePage) {
-                            logState.value(RefreshLogSeverity.Info, master.storeName, "Main frame ready: ${displayUrl(loadedUrl)}")
+                            logState.value(RefreshLogSeverity.Info, master.storeName, "Page ready [${indexState.value + 1}/${master.urls.size}]: ${displayUrl(loadedUrl)}")
                             readyWebView = view
                             if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
                                 ajioPageReadyStage = "onPageFinished"
@@ -795,10 +764,9 @@ private fun StoreRefreshRunner(
                                 ajioPageReadyViewIdentity = view.hashCode()
                                 ajioPageReadySignal += 1
                             }
-                            logState.value(RefreshLogSeverity.Info, master.storeName, "READY_WEBVIEW_SET view=${view.hashCode()} readyView=${readyViewState.value?.hashCode()} index=${indexState.value} attempt=${attemptState.value} generation=${generationState.value}")
                         } else {
-                            logState.value(RefreshLogSeverity.Warning, master.storeName, "PAGE_READY_URL_MISMATCH calling failCurrent")
-                            failCurrent("Retailer redirected away from required URL to $loadedUrl")
+                            logState.value(RefreshLogSeverity.Warning, master.storeName, "Redirected away from expected page to ${displayUrl(loadedUrl)}")
+                            failCurrent("Retailer redirected away from required URL to ${displayUrl(loadedUrl)}")
                         }
                     },
                     onError = ::failCurrent,
@@ -808,7 +776,7 @@ private fun StoreRefreshRunner(
                             logState.value(
                                 RefreshLogSeverity.Info,
                                 master.storeName,
-                                "WEBVIEW_CLIENT $callbackStage view=${view.hashCode()} viewUrl=${view.url} token=${RetailerWebView.currentNavigationToken(view)} index=${indexState.value} attempt=${attemptState.value} generation=${generationState.value} callbackUrl=$callbackUrl finished=${finishedState.value}",
+                                "Lifecycle: $callbackStage -> ${displayUrl(callbackUrl)}",
                             )
                         }
                     },
@@ -928,14 +896,7 @@ private fun executeMaster(
     sessionId: String,
 ) {
     val combinedSource = generateMasterWrapper(master, source, sessionId)
-    if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
-        android.util.Log.i("AurumAjio", "MASTER_EVALUATE_START bytes=${combinedSource.length}")
-    }
-    webView.evaluateJavascript(combinedSource) { value ->
-        if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
-            android.util.Log.i("AurumAjio", "MASTER_EVALUATE_CALLBACK value=${value.orEmpty().take(256)}")
-        }
-    }
+    webView.evaluateJavascript(combinedSource) { _ -> }
 }
 
 internal fun generateMasterWrapper(master: MasterScript, source: String, sessionId: String): String {
@@ -945,18 +906,11 @@ internal fun generateMasterWrapper(master: MasterScript, source: String, session
     } else {
         ""
     }
-    val masterBegin = if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
-        "console.warn('[Aurum AJIO] MASTER_BEGIN');\n"
-    } else {
-        ""
-    }
+    val doneVarName = "${master.retailer.name.lowercase()}Done"
     val bridgeHeaders = bridgeHeaderWrapper(sessionId)
-    val ajioBridge = if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
-        ajioBridgeWrapper(sessionId)
-    } else {
-        ""
-    }
-    return bridgeHeaders + prefix + ajioDiagnosticPrefix + masterBegin + source + ajioBridge
+    val bridgePost = retailerBridgeWrapper(master, sessionId)
+    val wrappedSource = "window.$doneVarName = (function() {\nreturn $source\n})();\n"
+    return bridgeHeaders + prefix + ajioDiagnosticPrefix + wrappedSource + bridgePost
 }
 
 private fun bridgeHeaderWrapper(sessionId: String): String {
@@ -968,20 +922,23 @@ private fun bridgeHeaderWrapper(sessionId: String): String {
             window.fetch = function (input, init) {
                 const requestUrl = typeof input === 'string' ? input : input && input.url;
                 if (requestUrl === aurumBridgePath) {
-                    const headers = new Headers((init && init.headers) || (input && input.headers));
-                    headers.set('X-Aurum-Refresh-Session', $sessionLiteral);
-                    return nativeFetch(input, Object.assign({}, init || {}, { headers: headers }))
+                    init = init || {};
+                    let headersObj = {};
+                    if (init.headers) {
+                        if (typeof init.headers.forEach === 'function') {
+                            init.headers.forEach(function (v, k) { headersObj[k] = v; });
+                        } else {
+                            Object.assign(headersObj, init.headers);
+                        }
+                    }
+                    headersObj['X-Aurum-Refresh-Session'] = $sessionLiteral;
+                    init.headers = headersObj;
+                    return nativeFetch(input, init)
                         .then(function (response) {
-                            return response.clone().text().then(function (body) {
-                                console.warn('[Aurum Bridge] session=' + $sessionLiteral.slice(0, 8) +
-                                    ' status=' + response.status + ' accepted=' + response.ok +
-                                    ' body=' + body.slice(0, 512));
-                                return response;
-                            });
+                            return response;
                         })
                         .catch(function (error) {
-                            console.error('[Aurum Bridge] session=' + $sessionLiteral.slice(0, 8) +
-                                ' network failure=' + (error && error.message ? error.message : error));
+                            console.error('[Aurum Bridge] Network failure=' + (error && error.message ? error.message : error));
                             throw error;
                         });
                 }
@@ -991,79 +948,71 @@ private fun bridgeHeaderWrapper(sessionId: String): String {
     """.trimIndent()
 }
 
-private fun ajioBridgeWrapper(sessionId: String): String {
+private fun retailerBridgeWrapper(master: MasterScript, sessionId: String): String {
     val sessionLiteral = jsonString(sessionId)
+    val storeName = master.storeName
+    val retailerName = master.retailer.name
+    val doneVarName = "${retailerName.lowercase()}Done"
+    val productBinding = master.productBinding
+
     return """
         ;(function () {
-            const aurumAjioDone = window.ajioDone;
-            const doneThenable = Boolean(aurumAjioDone && typeof aurumAjioDone.then === 'function');
-            window.__aurumAjioDoneSettled = false;
-            window.__aurumAjioDoneRejected = null;
-            window.__aurumAjioBridgeAttempted = false;
-            window.__aurumAjioBridgeCompleted = false;
-            window.__aurumAjioBridgeError = null;
-            console.warn('[Aurum AJIO] MASTER_SOURCE_RETURNED doneType=' + typeof aurumAjioDone +
-                ' doneThenable=' + doneThenable + ' goldArray=' + Array.isArray(window.ajioGold) +
-                ' goldLength=' + (Array.isArray(window.ajioGold) ? window.ajioGold.length : -1));
-            console.warn('[Aurum AJIO] AJIO_DONE_CAPTURED type=' + typeof aurumAjioDone + ' thenable=' + doneThenable);
-            Promise.resolve(aurumAjioDone).then(function () {
-                window.__aurumAjioDoneSettled = true;
-                window.__aurumAjioDoneRejected = null;
-                const records = Array.isArray(window.ajioGold) ? window.ajioGold : [];
-                console.warn('[Aurum AJIO] AJIO_DONE_RESOLVED goldLength=' + records.length);
-                window.__aurumAjioBridgeAttempted = true;
-                console.warn('[Aurum AJIO] BRIDGE_POST_ATTEMPT records=' + records.length + ' session=' + $sessionLiteral.slice(0, 8));
+            const masterDone = window.$doneVarName;
+            console.warn('[Aurum $retailerName] Master execution started (session=' + $sessionLiteral.slice(0, 8) + ')');
+            Promise.resolve(masterDone).then(function () {
+                const records = Array.isArray(window.$productBinding) ? window.$productBinding :
+                    Array.isArray(window.${retailerName.lowercase()}Products) ? window.${retailerName.lowercase()}Products : [];
+                console.warn('[Aurum $retailerName] Extraction complete: ' + records.length + ' products found');
+                if (records.length === 0) return;
                 return fetch('http://localhost:8788/api/browser-bridge/products', {
                     method: 'POST',
                     headers: {'content-type': 'application/json', 'X-Aurum-Refresh-Session': $sessionLiteral},
                     body: JSON.stringify({
-                        store: 'ajio.com',
+                        store: '$storeName',
                         records: records.map(function (product) {
                             return {
                                 bridgeSnapshot: true,
-                                code: product.code || product.id,
-                                url: product.link || product.url,
-                                name: product.name,
-                                brand: product.brand,
+                                code: String(product.code || product.asin || product.productId || product.pid || product.id || ''),
+                                url: product.link || product.url || product.landingPageUrl,
+                                name: product.name || product.title || product.productName,
+                                brand: product.brand || product.brandName,
                                 price: product.price,
-                                couponPrice: product.offerPrice,
+                                couponPrice: product.offerPrice || product.couponPrice,
                                 metal: product.metal || 'gold',
-                                grams: product.weightGrams || product.grams,
+                                grams: product.weightGrams || product.grams || product.totalWeightGrams,
                                 karat: product.karat,
-                                purity: product.purity
+                                purity: product.purity,
+                                unavailable: Boolean(product.unavailable || product.outOfStock || product.purchasable === false)
                             };
                         })
                     })
                 }).then(function (response) {
-                    window.__aurumAjioBridgeCompleted = true;
-                    window.__aurumAjioBridgeError = null;
-                    console.warn('[Aurum AJIO] BRIDGE_POST_RESPONSE status=' + response.status);
+                    console.warn('[Aurum $retailerName] Bridge POST status=' + response.status);
                     return response;
                 }).catch(function (error) {
-                    window.__aurumAjioBridgeError = String(error && error.message ? error.message : error);
-                    console.error('[Aurum AJIO] BRIDGE_POST_FAILED ' + window.__aurumAjioBridgeError);
+                    console.error('[Aurum $retailerName] Bridge POST failed: ' + (error && error.message ? error.message : error));
                 });
             }).catch(function (error) {
-                window.__aurumAjioDoneRejected = String(error && error.message ? error.message : error);
-                console.error('[Aurum AJIO] AJIO_DONE_REJECTED ' + window.__aurumAjioDoneRejected);
+                console.error('[Aurum $retailerName] Master script failed: ' + (error && error.message ? error.message : error));
             });
-            setTimeout(function () {
-                if (!window.__aurumAjioDoneSettled && !window.__aurumAjioDoneRejected) {
-                    const records = Array.isArray(window.ajioGold) ? window.ajioGold : [];
-                    console.warn('[Aurum AJIO] AJIO_DONE_PENDING goldLength=' + records.length);
-                }
-            }, 10000);
         })();
     """.trimIndent()
 }
 
     private suspend fun waitForRetailerReady(webView: WebView, master: MasterScript, pincode: String): RetailerReadiness {
-    if (master.retailer == com.aurum.intelligence.browser.Retailer.Myntra) {
         webView.evaluateJavascript(
-            "try { document.cookie='mynt-ulc=pincode:$pincode; path=/; Secure; SameSite=Lax'; } catch (_) {}",
+            """
+            (function() {
+                try {
+                    document.cookie = "pincode=$pincode; path=/; max-age=31536000; SameSite=Lax";
+                    document.cookie = "ajio_pincode=$pincode; path=/; max-age=31536000; SameSite=Lax";
+                    document.cookie = "mynt-ulc=pincode:$pincode; path=/; Secure; SameSite=Lax";
+                    document.querySelectorAll('.ic-close, [data-testid="close-button"], .close-button, .modal-close, button.close, #pge-close-x, .pincode-modal-close').forEach(function(el) { el.click(); });
+                } catch (_) {}
+            })();
+            """.trimIndent(),
             null,
         )
-    }
     repeat(40) {
         if (master.retailer == com.aurum.intelligence.browser.Retailer.Ajio) {
             when (val state = webView.evaluateAjioReadiness()) {

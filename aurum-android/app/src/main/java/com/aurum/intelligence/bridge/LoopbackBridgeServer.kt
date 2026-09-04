@@ -69,12 +69,15 @@ class LoopbackBridgeServer(
                 val body = readExact(input, length).toString(Charsets.UTF_8)
                 val sessionId = headers["x-aurum-refresh-session"].orEmpty()
                 val isAjio = body.contains("\"store\":\"ajio.com\"")
-                if (isAjio) android.util.Log.i("AurumAjio", "AJIO_BRIDGE_HTTP_RECEIVED session=${sessionId.take(8)} bytes=$length")
+                if (isAjio) android.util.Log.i("AurumBridge", "[AJIO] Payload received ($length bytes) for session ${sessionId.take(8)}")
                 val result = runCatching { runBlocking { repository.merge(body, sessionId) } }
                 result.onSuccess { merged ->
-                    if (isAjio) android.util.Log.i("AurumAjio", "AJIO_BRIDGE_SESSION_ACCEPTED session=${sessionId.take(8)}")
-                    if (isAjio) android.util.Log.i("AurumAjio", "AJIO_BRIDGE_PARSE accepted=${merged.accepted} rejected=${merged.skipped}")
-                    if (isAjio) android.util.Log.i("AurumAjio", "AJIO_BRIDGE_EVENT_EMITTED")
+                    if (isAjio) {
+                        android.util.Log.i(
+                            "AurumBridge",
+                            "[AJIO] Session ${sessionId.take(8)} merged: ${merged.accepted} accepted, ${merged.updated} updated, ${merged.skipped} skipped",
+                        )
+                    }
                     respond(
                         output,
                         200,
@@ -82,7 +85,7 @@ class LoopbackBridgeServer(
                         origin,
                     )
                 }.onFailure { error ->
-                    if (isAjio) android.util.Log.w("AurumAjio", "AJIO_BRIDGE_SESSION_REJECTED session=${sessionId.take(8)} reason=${error.message}")
+                    if (isAjio) android.util.Log.w("AurumBridge", "[AJIO] Session ${sessionId.take(8)} rejected: ${error.message}")
                     respond(output, 400, "{\"error\":${jsonString(error.message ?: "invalid payload")}}", origin)
                 }
             }

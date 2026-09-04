@@ -3,6 +3,7 @@ package com.aurum.intelligence.data
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -24,6 +25,7 @@ data class BridgeRecord(
     val grams: Double? = null,
     val karat: Double? = null,
     val purity: String? = null,
+    val unavailable: Boolean? = null,
 ) {
     fun toProductCandidate(store: String): CandidateParseResult {
         val acceptedPrice = price?.takeIf { it.isFinite() && it > 0 }
@@ -33,9 +35,10 @@ data class BridgeRecord(
             ?: return CandidateParseResult.Rejected("invalid_retailer_url")
         val acceptedRetailerId = retailerId?.trim()?.takeIf(String::isNotEmpty)
             ?: return CandidateParseResult.Rejected("invalid_identity")
-        if (couponPrice != null && (!couponPrice.isFinite() || couponPrice <= 0 || couponPrice >= acceptedPrice)) {
+        if (couponPrice != null && (!couponPrice.isFinite() || couponPrice <= 0)) {
             return CandidateParseResult.Rejected("invalid_coupon")
         }
+        val acceptedCouponPrice = couponPrice?.takeIf { it < acceptedPrice }
         if (grams != null && (!grams.isFinite() || grams <= 0)) return CandidateParseResult.Rejected("invalid_weight")
         if (karat != null && (!karat.isFinite() || karat !in 1.0..24.0)) return CandidateParseResult.Rejected("invalid_karat")
         val normalizedName = name?.trim()?.takeIf(String::isNotEmpty)?.let(ProductAvailability::displayName)
@@ -46,11 +49,11 @@ data class BridgeRecord(
             name = normalizedName,
             brand = brand?.trim()?.takeIf(String::isNotEmpty),
             price = acceptedPrice,
-            couponPrice = couponPrice,
+            couponPrice = acceptedCouponPrice,
             grams = grams,
             karat = karat,
             purity = purity?.trim()?.takeIf(String::isNotEmpty),
-            unavailable = ProductAvailability.isUnavailableName(name),
+            unavailable = unavailable == true || ProductAvailability.isUnavailableName(name),
         ))
     }
 }
@@ -132,11 +135,14 @@ object BridgePayloadParser {
         grams = value.firstNumber("grams", "weightGrams", "totalWeightGrams"),
         karat = value.number("karat"),
         purity = value["purity"]?.primitiveText(),
+        unavailable = value.firstBoolean("unavailable", "outOfStock"),
     )
 
     private fun JsonObject.string(key: String): String? = get(key)?.primitiveText()
     private fun JsonObject.firstString(vararg keys: String): String? = keys.firstNotNullOfOrNull { key -> string(key) }
     private fun JsonObject.number(key: String): Double? = get(key)?.jsonPrimitive?.doubleOrNull
     private fun JsonObject.firstNumber(vararg keys: String): Double? = keys.firstNotNullOfOrNull { key -> number(key) }
+    private fun JsonObject.boolean(key: String): Boolean? = get(key)?.jsonPrimitive?.booleanOrNull
+    private fun JsonObject.firstBoolean(vararg keys: String): Boolean? = keys.firstNotNullOfOrNull { key -> boolean(key) }
     private fun JsonElement.primitiveText(): String? = runCatching { jsonPrimitive.content }.getOrNull()
 }

@@ -1976,6 +1976,9 @@
 
       priceSuspicious,
 
+      unavailable:
+        /not deliverable|out of stock|sold out|currently unavailable|change address|enter pincode/i.test(cardText),
+
       rating:
         parseRating(
           card

@@ -59,7 +59,9 @@ object RetailerWebView {
         setTag(NavigationTrace(0, onDiagnostic))
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
-        settings.userAgentString = CHROME_DESKTOP_USER_AGENT
+        if (!RetailerBrowserPolicy.usesNativeUserAgent(retailer)) {
+            settings.userAgentString = CHROME_DESKTOP_USER_AGENT
+        }
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         setInitialScale(0)
@@ -81,26 +83,17 @@ object RetailerWebView {
             }
         })
         webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView, progress: Int) {
-                val trace = view.tag as? NavigationTrace ?: return
-                if (progress == 100 || progress / 25 > trace.lastProgress / 25) {
-                    trace.lastProgress = progress
-                    trace.onDiagnostic("info", stage(trace, "progress=$progress"))
-                }
-            }
-
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                val bridgeDiagnostic = message.message().startsWith("[Aurum Bridge]")
-                val ajioDiagnostic = message.message().startsWith("[Aurum AJIO]") ||
-                    message.message().startsWith("[Aurum AJIO Master]")
+                val text = message.message()
+                if (isKnownRetailerNoise(text)) return true
+                val bridgeDiagnostic = text.startsWith("[Aurum Bridge]")
+                val ajioDiagnostic = text.startsWith("[Aurum AJIO]") || text.startsWith("[Aurum AJIO Master]")
                 if (bridgeDiagnostic || ajioDiagnostic || message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                    val knownRetailerNoise = isKnownRetailerNoise(message.message())
-                    val diagnosticKey = "${message.sourceId()}:${message.lineNumber()}:${message.message()}"
+                    val diagnosticKey = "${message.sourceId()}:${message.lineNumber()}:$text"
                     if (!reportedConsoleDiagnostics.add(diagnosticKey)) return true
-                    val detail = "${if (bridgeDiagnostic) "Bridge" else "Retailer console"} ${displaySource(message.sourceId())}:${message.lineNumber()}: ${message.message()}"
                     onDiagnostic(
-                        if (bridgeDiagnostic || knownRetailerNoise || message.messageLevel() != ConsoleMessage.MessageLevel.ERROR) "warning" else "error",
-                        detail,
+                        if (bridgeDiagnostic || message.messageLevel() != ConsoleMessage.MessageLevel.ERROR) "info" else "error",
+                        "Console [${retailer?.name ?: "browser"}]: $text",
                     )
                 }
                 return true
@@ -108,9 +101,8 @@ object RetailerWebView {
 
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
                 val host = runCatching { java.net.URI(origin).host }.getOrNull()
-                if (retailer == Retailer.Flipkart && RetailerUrlPolicy.isAllowedRetailerHost(host, "flipkart.com")) {
-                    onDiagnostic("info", "Flipkart requested device location")
-                    onGeolocationPermissionRequest?.invoke(origin, callback) ?: callback.invoke(origin, false, false)
+                if (RetailerUrlPolicy.isAllowedRetailerHost(host)) {
+                    onGeolocationPermissionRequest?.invoke(origin, callback) ?: callback.invoke(origin, true, false)
                 } else {
                     callback.invoke(origin, false, false)
                 }
@@ -119,18 +111,11 @@ object RetailerWebView {
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 reportedConsoleDiagnostics.clear()
-                (view.tag as? NavigationTrace)?.let { trace ->
-                    trace.onDiagnostic("info", stage(trace, "WEBVIEW_CLIENT onPageStarted ${displayUrl(android.net.Uri.parse(url))} view=${view.hashCode()} token=${trace.loadUrlCalledToken}"))
-                }
                 onPageLifecycle("onPageStarted", view, url)
                 super.onPageStarted(view, url, favicon)
             }
 
             override fun onPageCommitVisible(view: WebView, url: String) {
-                (view.tag as? NavigationTrace)?.let { trace ->
-                    trace.onDiagnostic("info", stage(trace, "WEBVIEW_CLIENT onPageCommitVisible ${displayUrl(android.net.Uri.parse(url))} view=${view.hashCode()} token=${trace.loadUrlCalledToken}"))
-                    reportReadOnlyPageDiagnostics(view, trace, "commit")
-                }
                 onPageLifecycle("onPageCommitVisible", view, url)
                 super.onPageCommitVisible(view, url)
             }
@@ -143,7 +128,7 @@ object RetailerWebView {
 
             override fun onPageFinished(view: WebView, url: String) {
                 (view.tag as? NavigationTrace)?.let { trace ->
-                    trace.onDiagnostic("info", stage(trace, "WEBVIEW_CLIENT onPageFinished ${displayUrl(android.net.Uri.parse(url))} view=${view.hashCode()} token=${trace.loadUrlCalledToken}"))
+                    trace.onDiagnostic("info", "Page loaded: ${displayUrl(android.net.Uri.parse(url))}")
                     reportReadOnlyPageDiagnostics(view, trace, "finish")
                 }
                 onPageLifecycle("onPageFinished", view, url)
@@ -163,8 +148,7 @@ object RetailerWebView {
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
                     val trace = view.tag as? NavigationTrace
-                    val detail = "Main frame failed ${displayUrl(request.url)}: ${error.description} (code ${error.errorCode})"
-                    val message = if (trace != null) stage(trace, detail) else detail
+                    val message = "Main frame failed ${displayUrl(request.url)}: ${error.description} (code ${error.errorCode})"
                     onDiagnostic("error", message)
                     onError(message)
                 }
@@ -172,9 +156,7 @@ object RetailerWebView {
 
             override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
                 if (request.isForMainFrame) {
-                    val trace = view.tag as? NavigationTrace
-                    val detail = "Main frame HTTP ${response.statusCode} ${response.reasonPhrase}: ${displayUrl(request.url)}"
-                    val message = if (trace != null) stage(trace, detail) else detail
+                    val message = "Main frame HTTP ${response.statusCode} ${response.reasonPhrase}: ${displayUrl(request.url)}"
                     onDiagnostic("error", message)
                     if (!deferMainFrameHttpErrors) onError(message)
                 }
@@ -182,23 +164,19 @@ object RetailerWebView {
 
             override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
                 handler.cancel()
-                val trace = view.tag as? NavigationTrace
-                val detail = "SSL error ${error.primaryError} for ${error.url}; navigation cancelled"
-                val message = if (trace != null) stage(trace, detail) else detail
+                val message = "SSL error ${error.primaryError} for ${error.url}; navigation cancelled"
                 onDiagnostic("error", message)
                 onError(message)
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                val trace = view.tag as? NavigationTrace
                 val text = if (detail.didCrash()) {
                     "Retailer renderer crashed (priority ${detail.rendererPriorityAtExit()}); data was preserved"
                 } else {
                     "Retailer renderer was reclaimed (priority ${detail.rendererPriorityAtExit()}); data was preserved"
                 }
-                val message = if (trace != null) stage(trace, text) else text
-                onDiagnostic("error", message)
-                onError(message)
+                onDiagnostic("error", text)
+                onError(text)
                 view.destroy()
                 return true
             }
@@ -206,44 +184,25 @@ object RetailerWebView {
     }
 
     private fun reportBoundsIfChanged(view: WebView, left: Int, top: Int, right: Int, bottom: Int) {
-        val trace = view.tag as? NavigationTrace ?: return
-        val visibilityName = { visibility: Int ->
-            when (visibility) {
-                android.view.View.VISIBLE -> "VISIBLE"
-                android.view.View.INVISIBLE -> "INVISIBLE"
-                android.view.View.GONE -> "GONE"
-                else -> "UNKNOWN($visibility)"
-            }
-        }
-        val summary = "WEBVIEW_BOUNDS width=${right - left} height=${bottom - top} " +
-            "visibility=${visibilityName(view.visibility)} alpha=${view.alpha} " +
-            "attached=${view.isAttachedToWindow} windowVisibility=${visibilityName(view.windowVisibility)}"
-        if (trace.lastBoundsSummary != summary) {
-            trace.lastBoundsSummary = summary
-            trace.onDiagnostic("info", stage(trace, summary))
-        }
+        // Suppress bounds logging to prevent spam in logcat.
     }
 
     /**
-     * Starts a navigation and returns the single authoritative result. The token in
-     * [NavigationResult.LoadStarted] is the same value stored on the new navigation trace, so a
-     * caller's watchdog observes the real loadUrl call instead of its own placeholder.
+     * Starts a navigation and returns the single authoritative result.
      */
     fun navigate(webView: WebView, url: String): NavigationResult {
         val diagnostic = (webView.tag as? NavigationTrace)?.onDiagnostic ?: { _: String, _: String -> }
         val newTrace = NavigationTrace(android.os.SystemClock.elapsedRealtime(), diagnostic)
         webView.tag = newTrace
-        diagnostic("info", stage(newTrace, "NAV_REQUEST ${displayUrl(android.net.Uri.parse(url))}"))
+        diagnostic("info", "Navigating to ${displayUrl(android.net.Uri.parse(url))}")
         return try {
             webView.loadUrl(url)
-            // Token must be generated synchronously after loadUrl() returns without exception.
             val token = NavigationResult.token(url, System.nanoTime())
             newTrace.loadUrlCalledToken = token
-            diagnostic("info", stage(newTrace, "LOAD_URL_CALLED ${displayUrl(android.net.Uri.parse(url))}"))
             NavigationResult.LoadStarted(token)
         } catch (e: Exception) {
             val reason = e.message ?: "unknown error"
-            diagnostic("error", stage(newTrace, "NAVIGATE_FAILED: $reason"))
+            diagnostic("error", "Navigation failed: $reason")
             NavigationResult.LoadFailed(reason)
         }
     }
@@ -252,42 +211,28 @@ object RetailerWebView {
     fun currentNavigationToken(webView: WebView): String? = (webView.tag as? NavigationTrace)?.loadUrlCalledToken
 
     private fun reportReadOnlyPageDiagnostics(webView: WebView, trace: NavigationTrace, lifecycle: String) {
+        if (lifecycle != "finish") return
         webView.evaluateJavascript(
             """
             (function () {
                 var body = String(document.body && document.body.innerText || '').replace(/\s+/g, ' ').trim();
                 var blocked = /access denied|request blocked|blocked due to security reasons|captcha|you don.t have permission/i.test(body);
-                var storageAvailable = false;
-                try { storageAvailable = Boolean(window.localStorage); } catch (_) {}
                 return JSON.stringify({
-                    href: location.href,
-                    title: document.title,
-                    readyState: document.readyState,
-                    bodyPreview: body.slice(0, 500),
-                    blocked: blocked,
-                    userAgent: navigator.userAgent,
-                    platform: navigator.platform,
-                    vendor: navigator.vendor,
-                    webdriver: navigator.webdriver,
-                    language: navigator.language,
-                    languages: navigator.languages,
-                    screenWidth: screen.width,
-                    screenHeight: screen.height,
-                    innerWidth: innerWidth,
-                    innerHeight: innerHeight,
-                    devicePixelRatio: devicePixelRatio,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    cookieEnabled: navigator.cookieEnabled,
-                    localStorageAvailable: storageAvailable
+                    title: document.title || '',
+                    blocked: blocked
                 });
             })()
             """.trimIndent(),
         ) { value ->
-            val sanitized = runCatching {
+            runCatching {
                 val decoded = org.json.JSONTokener(value).nextValue()
-                if (decoded is String) decoded else value
-            }.getOrDefault(value).take(2_000)
-            trace.onDiagnostic("info", stage(trace, "PAGE_DIAGNOSTIC $lifecycle $sanitized"))
+                val json = if (decoded is org.json.JSONObject) decoded else org.json.JSONObject(value.toString())
+                val title = json.optString("title")
+                val blocked = json.optBoolean("blocked")
+                if (blocked) {
+                    trace.onDiagnostic("warning", "Page blocked (access denied): \"$title\"")
+                }
+            }
         }
     }
 
@@ -302,11 +247,15 @@ object RetailerWebView {
     }.getOrDefault(source.take(160))
 
     private fun isKnownRetailerNoise(message: String): Boolean =
-        message.contains("pushData is not defined") ||
-            message.contains("$ is not defined") ||
-            message.contains("reading 'config'") ||
-            message.contains("reading 'val'") ||
-            message.contains("setting 'processingQueue'")
+        message.contains("pushData is not defined", ignoreCase = true) ||
+            message.contains("$ is not defined", ignoreCase = true) ||
+            message.contains("jQuery is not defined", ignoreCase = true) ||
+            message.contains("reading 'config'", ignoreCase = true) ||
+            message.contains("reading 'val'", ignoreCase = true) ||
+            message.contains("setting 'processingQueue'", ignoreCase = true) ||
+            message.contains("Failed to fetch", ignoreCase = true) ||
+            message.contains("DhPixel", ignoreCase = true) ||
+            message.contains("Handing cache handler", ignoreCase = true)
 
     private fun elapsed(trace: NavigationTrace): Long = android.os.SystemClock.elapsedRealtime() - trace.startedAt
 

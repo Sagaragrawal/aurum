@@ -135,15 +135,9 @@ fun TanishqBrowserScreen(
                             created,
                             android.widget.FrameLayout.LayoutParams(backgroundViewport.widthPx, backgroundViewport.heightPx),
                         )
-                        onLog(
-                            RefreshLogSeverity.Info,
-                            "tanishq",
-                            "WEBVIEW_VIEWPORT background ${backgroundViewport.describe()} host=FrameLayout clipped=yes",
-                        )
                         when (val result = RetailerWebView.navigate(created, TANISHQ_URL)) {
                             is NavigationResult.LoadStarted -> {
                                 loadUrlCalledToken = result.token
-                                onLog(RefreshLogSeverity.Info, "tanishq", "LOAD_URL_CALLED token=${result.token.takeLast(12)}")
                             }
                             is NavigationResult.LoadFailed ->
                                 fail("Tanishq navigation could not start: ${result.reason}. Existing data was preserved.")

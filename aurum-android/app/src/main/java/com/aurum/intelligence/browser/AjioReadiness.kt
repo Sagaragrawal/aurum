@@ -21,7 +21,7 @@ object AjioReadiness {
         if (readyState != "complete" || !(host == "ajio.com" || host.endsWith(".ajio.com"))) {
             return RetailerReadiness.Waiting
         }
-        return if (readyState == "complete" && bodyText.length >= 120 &&
+        return if (readyState == "complete" && bodyText.isNotBlank() &&
             Regex("^/s/[^/?#]+|/c/[0-9]+").containsMatchIn(path)
         ) {
             RetailerReadiness.Ready

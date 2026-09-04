@@ -800,6 +800,24 @@ function parseWeight(text) {
   let m;
 
   /****************************************************************
+   * 0. EXPLICIT HEADLINE DECIMAL WEIGHT (e.g. 3.5g, 3.5 gm, 2.5g)
+   ****************************************************************/
+  const headlineDecimal = s.match(/\b(\d+\.\d+)\s*(g|gm|grams)\b/i);
+  if (headlineDecimal && !s.includes("each")) {
+    const headlineGrams = Number(headlineDecimal[1]);
+    if (Number.isFinite(headlineGrams) && headlineGrams > 0 && headlineGrams <= 100) {
+      return done({
+        total: headlineGrams,
+        unit: headlineGrams,
+        quantity: 1,
+        statedWeight: headlineGrams,
+        source: "explicit-headline-decimal-weight",
+        confidence: 150
+      });
+    }
+  }
+
+  /****************************************************************
    * 1. EACH × PCS — HIGHEST PRIORITY
    *
    * Works anywhere in the title:

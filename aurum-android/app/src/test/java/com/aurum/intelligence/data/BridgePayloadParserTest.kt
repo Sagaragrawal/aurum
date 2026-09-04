@@ -43,18 +43,27 @@ class BridgePayloadParserTest {
 
     @Test
     fun candidateRejectsInvalidCouponAndKaratValues() {
-        val result = BridgeRecord(
+        val invalidCoupon = BridgeRecord(
+            retailerId = "1",
+            url = "https://www.ajio.com/p/1",
+            price = 10_000.0,
+            couponPrice = -50.0,
+            metal = "gold",
+        ).toProductCandidate("ajio.com")
+
+        assertTrue(invalidCoupon is CandidateParseResult.Rejected)
+        assertEquals("invalid_coupon", (invalidCoupon as CandidateParseResult.Rejected).reason)
+
+        val higherCoupon = BridgeRecord(
             retailerId = "1",
             url = "https://www.ajio.com/p/1",
             price = 10_000.0,
             couponPrice = 12_000.0,
-            grams = 1.0,
-            karat = 999.0,
             metal = "gold",
         ).toProductCandidate("ajio.com")
 
-        assertTrue(result is CandidateParseResult.Rejected)
-        assertEquals("invalid_coupon", (result as CandidateParseResult.Rejected).reason)
+        assertTrue(higherCoupon is CandidateParseResult.Valid)
+        assertNull((higherCoupon as CandidateParseResult.Valid).candidate.couponPrice)
     }
 
     @Test

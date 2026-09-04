@@ -45,7 +45,7 @@ abstract class PackageMasterScripts : DefaultTask() {
         check(historyDestination.mkdirs() || historyDestination.isDirectory) {
             "Unable to create generated history seed directory."
         }
-        historyData.files.forEach { source ->
+        historyData.files.filter { it.exists() }.forEach { source ->
             source.copyTo(historyDestination.resolve(source.name), overwrite = true)
         }
     }
@@ -81,10 +81,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
 
-    kotlin {
-        jvmToolchain(17)
-    }
+kotlin {
+    jvmToolchain(25)
 }
 
 val masterScriptNames = listOf(

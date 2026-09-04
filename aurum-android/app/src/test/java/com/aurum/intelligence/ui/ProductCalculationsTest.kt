@@ -99,7 +99,7 @@ class ProductCalculationsTest {
 
     @Test
     fun dealRadarRejectsStaleAndImplausiblyCheapPerGramObservations() {
-        val stale = product("stale", price = 9_000.0, lastLiveAt = now - 31 * 60 * 1_000L)
+        val stale = product("stale", price = 9_000.0, status = "stale", lastLiveAt = now - 31 * 60 * 1_000L)
         val implausible = product("bad-weight", price = 100.0, grams = 1.0, lastLiveAt = now)
         val valid = product("valid", price = 9_000.0, grams = 1.0, lastLiveAt = now)
 
@@ -182,7 +182,7 @@ class ProductCalculationsTest {
 
     @Test
     fun liveQuickFilterExcludesStaleTimestampUnavailableWrongStatusAndInvalidTimestamps() {
-        val tooOldTimestamp = product("too-old", status = "live", lastLiveAt = now - 45 * 60 * 1_000L)
+        val tooOldTimestamp = product("too-old", status = "live", lastLiveAt = now - 25 * 60 * 60 * 1_000L)
         val unavailableButRecent = product("unavailable-recent", name = "Coin - Not Deliverable", status = "live", lastLiveAt = now)
         val staleStatusRecentTimestamp = product("stale-status", status = "stale", lastLiveAt = now)
         val futureTimestamp = product("future", status = "live", lastLiveAt = now + 60 * 60 * 1_000L)
@@ -197,6 +197,23 @@ class ProductCalculationsTest {
                 nowMillis = now,
             ).isEmpty(),
         )
+    }
+
+    @Test
+    fun notLiveQuickFilterExcludesUnavailableAndNotDeliverableProducts() {
+        val unavailable = product("unavailable", name = "Coin - Not Deliverable", status = "unavailable")
+        val stale = product("stale", status = "stale")
+        val products = listOf(unavailable, stale)
+
+        val notLive = ProductCalculations.filteredAndSorted(
+            products,
+            WatchlistQuery(quickFilter = QuickFilter.NotLive),
+            10_000.0,
+            9_000.0,
+            nowMillis = now,
+        )
+
+        assertEquals(listOf("stale"), notLive.map { it.id })
     }
 
     @Test

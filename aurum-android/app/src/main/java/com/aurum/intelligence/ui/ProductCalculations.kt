@@ -57,7 +57,7 @@ object ProductCalculations {
     // Single authoritative "trustworthy right now" window, shared by the Live quick filter and Deal
     // Radar so both mean the same thing: a live-priced observation older than this is not shown as
     // currently live. Chosen to match the existing Deal Radar window rather than introduce a second one.
-    const val LIVE_FRESHNESS_MILLIS = 30 * 60 * 1_000L
+    const val LIVE_FRESHNESS_MILLIS = 24 * 60 * 60 * 1_000L
 
     fun isUnavailable(product: ProductEntity): Boolean =
         product.status == "unavailable" || ProductAvailability.isUnavailableName(product.name)
@@ -133,7 +133,7 @@ object ProductCalculations {
     ): List<ProductEntity> = baseFiltered(products, query)
         .asSequence()
         .filter { matchesQuickFilter(it, query.quickFilter, benchmark24, benchmark22, nowMillis) }
-        .filter { matchesPurity(it, query.purity) }
+        .filter { query.quickFilter == QuickFilter.BelowBullion || matchesPurity(it, query.purity) }
         .sortedWith(productComparator(query.sort, query.direction, benchmark24, benchmark22))
         .toList()
 
@@ -209,7 +209,7 @@ object ProductCalculations {
         QuickFilter.Unverified -> product.status == "unverified"
         QuickFilter.Failed -> product.status == "failed"
         QuickFilter.Unavailable -> isUnavailable(product)
-        QuickFilter.NotLive -> !isRecentlyLive(product, nowMillis)
+        QuickFilter.NotLive -> !isRecentlyLive(product, nowMillis) && !isUnavailable(product)
     }
 
     private fun productComparator(
