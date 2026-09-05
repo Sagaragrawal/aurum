@@ -14,12 +14,7 @@ object DatabaseBackupManager {
     fun getBackupFile(context: Context): File {
         val rootSdcard = Environment.getExternalStorageDirectory()
         val aurumDir = File(rootSdcard, "Aurum").apply { if (!exists()) mkdirs() }
-        val publicBackup = File(aurumDir, BACKUP_FILENAME)
-        if (publicBackup.exists() || aurumDir.canWrite()) return publicBackup
-
-        val externalFiles = context.getExternalFilesDir(null) ?: context.filesDir
-        val fallbackDir = File(externalFiles, "Aurum").apply { if (!exists()) mkdirs() }
-        return File(fallbackDir, BACKUP_FILENAME)
+        return File(aurumDir, BACKUP_FILENAME)
     }
 
     suspend fun createBackup(repository: BridgeRepository, context: Context): Boolean = withContext(Dispatchers.IO) {

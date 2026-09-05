@@ -63,6 +63,18 @@ data class BridgeRecord(
         val resolvedKarat = DatabaseSanitizerEngine.resolveKarat(normalizedName.orEmpty(), karat)
         val resolvedPurity = DatabaseSanitizerEngine.resolvePurity(normalizedName.orEmpty(), purity)
 
+        // Focus strictly on 24K pure gold (anything 995 and above)
+        if (resolvedKarat != null && resolvedKarat < 24.0) {
+            return CandidateParseResult.Rejected("non_24k_gold")
+        }
+        val purityNum = resolvedPurity?.toDoubleOrNull()
+        if (purityNum != null && ((purityNum >= 1.0 && purityNum < 995.0) || (purityNum < 1.0 && purityNum < 0.995))) {
+            return CandidateParseResult.Rejected("non_24k_purity")
+        }
+        if (Regex("\\b(?:22\\s*[kK]|22\\s*Kt|22Kt|22\\s*Karat|916|18\\s*[kK]|14\\s*[kK]|750|585)\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalizedName.orEmpty())) {
+            return CandidateParseResult.Rejected("non_24k_title")
+        }
+
         // Parse weight using WeightExtractor with fallback to supplied grams
         val extractedWeight = (normalizedName ?: "").let { WeightExtractor.parse(it) }
         val rawUnitGrams = extractedWeight.unitWeightGrams ?: grams

@@ -298,18 +298,8 @@ class NativeParallelRefreshEngine(
         data class FkTarget(val name: String, val url: String, val isMinutes: Boolean)
         val flipkartTargets = listOf(
             FkTarget(
-                "Flipkart Coins PLP",
-                "https://www.flipkart.com/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.material%255B%255D%3DYellow%2BGold&p%5B%5D=facets.material%255B%255D%3DGold&pinCode=$pincode",
-                false
-            ),
-            FkTarget(
-                "Flipkart Gold Coins Search",
-                "https://www.flipkart.com/search?q=gold+coin&marketplace=FLIPKART&pinCode=$pincode",
-                false
-            ),
-            FkTarget(
-                "Flipkart Gold Bars Search",
-                "https://www.flipkart.com/search?q=gold+bar&marketplace=FLIPKART&pinCode=$pincode",
+                "Flipkart 24K Pure Gold Coins & Bars",
+                "https://www.flipkart.com/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.material%255B%255D%3DYellow%2BGold&p%5B%5D=facets.material%255B%255D%3DGold&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528999%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK&pinCode=$pincode",
                 false
             ),
             FkTarget(
@@ -948,7 +938,7 @@ class NativeParallelRefreshEngine(
                 p.status != "unavailable" &&
                 (p.karat == 24.0 || p.karat == null)
         }.take(30)
-        if (unrefreshed.isEmpty() || store == "ajio.com") return 0
+        if (unrefreshed.isEmpty() || store in setOf("ajio.com", "myntra.com", "flipkart.com", "shopsy.in")) return 0
 
         activityRepository?.log(
             RefreshLogSeverity.Info,

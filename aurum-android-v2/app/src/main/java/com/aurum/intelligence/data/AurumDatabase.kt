@@ -180,7 +180,7 @@ interface AurumDao {
     @Query("DELETE FROM products WHERE id = :id")
     suspend fun deleteProduct(id: String)
 
-    @Query("DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) OR (purity IS NOT NULL AND purity != '' AND purity < '0.99') OR name LIKE '%22K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%'")
+    @Query("DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 995.0 AND CAST(purity AS REAL) >= 1.0) OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 0.995 AND CAST(purity AS REAL) < 1.0) OR name LIKE '%22K%' OR name LIKE '%22 K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%' OR name LIKE '%916%' OR name LIKE '%18K%' OR name LIKE '%14K%' OR price <= 0")
     suspend fun deleteNon24KProducts(): Int
 
     @Query("DELETE FROM product_price_history WHERE productId = :productId")

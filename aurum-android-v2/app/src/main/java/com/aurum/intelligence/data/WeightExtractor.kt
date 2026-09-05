@@ -163,6 +163,26 @@ object WeightExtractor {
             }
         }
 
+        // Pattern 5: "6Pcs ... 2 g Each", "5-Pcs ... Weight: 2 gm", "4 Pcs ... 1g each"
+        val pcsRegex = Regex("(\\d+)\\s*(?:-|\\s*)(?:pcs|pieces|pc)\\b[\\s\\S]{0,40}?(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE)
+        val m5 = pcsRegex.find(title)
+        if (m5 != null) {
+            val qty = m5.groupValues[1].toIntOrNull() ?: 1
+            val amount = m5.groupValues[2].toDoubleOrNull() ?: 0.0
+            val unit = m5.groupValues[3].lowercase()
+            val unitGrams = if (unit == "mg") amount / 1000.0 else amount
+            if (unitGrams in 0.01..500.0) {
+                return ProductWeight(
+                    unitWeightGrams = unitGrams,
+                    quantity = qty,
+                    totalWeightGrams = unitGrams * qty,
+                    confidence = WeightConfidence.High,
+                    source = WeightSource.TitleExpression,
+                    rawMatchedText = m5.groupValues[0],
+                )
+            }
+        }
+
         return null
     }
 
