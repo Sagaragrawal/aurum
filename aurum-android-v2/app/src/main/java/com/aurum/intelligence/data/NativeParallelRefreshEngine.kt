@@ -105,20 +105,12 @@ class NativeParallelRefreshEngine(
         data class AjioTarget(val name: String, val baseUrl: String)
         val ajioTargets = listOf(
             AjioTarget(
-                "Category 8303 (Women Fine Jewellery / 24K Gold)",
+                "Category 83 (Master Gold Jewellery & Coins / 24K & 22K)",
+                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&gridColumns=3&platform=Desktop&store=ajio&curated=true&advfilter=true&pincode=$pincode"
+            ),
+            AjioTarget(
+                "Category 8303 (Women Fine Jewellery / 24K Gold Only)",
                 "https://www.ajio.com/api/category/8303?fields=SITE&pageSize=99&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29&gridColumns=3&platform=Desktop&store=ajio&advfilter=true&pincode=$pincode"
-            ),
-            AjioTarget(
-                "Category 176606 (Jewellery Landing)",
-                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&gridColumns=3&platform=Desktop&store=ajio&curated=true&curatedid=jewellery-176606&advfilter=true&pincode=$pincode"
-            ),
-            AjioTarget(
-                "Category 169379 (Girls Jewellery)",
-                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&gridColumns=3&platform=Desktop&store=ajio&curated=true&curatedid=girls-169379&advfilter=true&pincode=$pincode"
-            ),
-            AjioTarget(
-                "Category 169373 (Boys Jewellery)",
-                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&gridColumns=3&platform=Desktop&store=ajio&curated=true&curatedid=boys-169373&advfilter=true&pincode=$pincode"
             )
         )
 
@@ -136,7 +128,7 @@ class NativeParallelRefreshEngine(
                 )
                 var resp0 = CronetNetworkClient.executeCronetApiRequest("${target.baseUrl}&currentPage=0", pincode)
                 if (resp0.status == 403 || resp0.status == 429) {
-                    delay(2000L) // Gentle backoff on rate limit
+                    delay(3000L) // Gentle backoff on rate limit
                     resp0 = CronetNetworkClient.executeCronetApiRequest("${target.baseUrl}&currentPage=0", pincode)
                 }
 
@@ -162,7 +154,7 @@ class NativeParallelRefreshEngine(
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "ajio.com",
-                        "[AJIO] DISCOVERING page=0 HTTP status=200 discovered=$p0Discovered accepted=$p0Saved"
+                        "[AJIO] DISCOVERING page=0 HTTP status=200 discovered=$p0Discovered accepted=$p0Saved totalAvailable=${parsed0.totalResults}"
                     )
 
                     database.dao().insertRawPayload(
@@ -179,7 +171,7 @@ class NativeParallelRefreshEngine(
 
                     if (maxPageLimit > 1) {
                         for (page in 1 until maxPageLimit) {
-                            delay(350L) // Respectful pacing prevents Akamai 403 rate-limiting
+                            delay(1200L) // Respectful 1.2s pacing prevents Akamai 403 rate-limiting on deep pagination
                             activityRepository?.log(
                                 RefreshLogSeverity.Info,
                                 "ajio.com",
@@ -187,14 +179,14 @@ class NativeParallelRefreshEngine(
                             )
                             var pResp = CronetNetworkClient.executeCronetApiRequest("${target.baseUrl}&currentPage=$page", pincode)
                             if (pResp.status == 403 || pResp.status == 429) {
-                                delay(2000L)
+                                delay(3000L)
                                 pResp = CronetNetworkClient.executeCronetApiRequest("${target.baseUrl}&currentPage=$page", pincode)
                             }
                             if (pResp.status == 403) {
                                 activityRepository?.log(
                                     RefreshLogSeverity.Warning,
                                     "ajio.com",
-                                    "[AJIO] HTTP status=403 on page=$page for ${target.name} (end of query depth)"
+                                    "[AJIO] HTTP status=403 on page=$page for ${target.name} (reached rate limit/depth ceiling). Preserving all $valid accepted products."
                                 )
                                 break
                             }
