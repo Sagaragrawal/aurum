@@ -101,27 +101,35 @@ class NativeParallelRefreshEngine(
         var lastError: String? = null
 
         data class AjioTarget(val name: String, val baseUrl: String)
+        val ajioParams = "&cohortIds=nontransacted%7Cp_null%2Cfalse%2Cunisex%2Cnoasp&advfilter=true&showAdsOnNextPage=false&is_ads_enable_plp=true&displayRatings=true&enableRushDelivery=true&vertexEnabled=false&previousSource=Saas"
         val ajioTargets = listOf(
             AjioTarget(
-                "Women Gold Category 8303",
-                "https://www.ajio.com/api/category/8303?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&cohortIds=nontransacted%7Cp_null%2Cfalse%2Cunisex%2Cnoasp&advfilter=true&platform=Android&showAdsOnNextPage=false&is_ads_enable_plp=true&displayRatings=true&store=ajio&pincode=$pincode&enableRushDelivery=true&vertexEnabled=false&previousSource=Saas"
+                "Category 8303",
+                "https://www.ajio.com/api/category/8303?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode$ajioParams"
             ),
             AjioTarget(
-                "Jewellery Section 176606",
-                "https://www.ajio.com/api/category/176606?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode"
+                "Category 176606",
+                "https://www.ajio.com/api/category/176606?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode$ajioParams"
             ),
             AjioTarget(
-                "Girls Jewellery 169379",
-                "https://www.ajio.com/api/category/169379?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode"
+                "Category 169379",
+                "https://www.ajio.com/api/category/169379?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode$ajioParams"
             ),
             AjioTarget(
-                "Boys Jewellery 169373",
-                "https://www.ajio.com/api/category/169373?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode"
+                "Category 169373",
+                "https://www.ajio.com/api/category/169373?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio&pincode=$pincode$ajioParams"
             ),
             AjioTarget(
-                "Search Gold Coin API",
-                "https://www.ajio.com/api/search?fields=SITE&pageSize=45&format=json&query=%3Arelevance&gridColumns=3&advfilter=true&platform=Android&store=ajio&pincode=$pincode&text=gold%20coin"
+                "Search Gold Coin",
+                "https://www.ajio.com/api/search?fields=SITE&pageSize=45&format=json&query=%3Arelevance&gridColumns=3&platform=Android&store=ajio&pincode=$pincode&text=gold%20coin$ajioParams"
             )
+        )
+
+        val ajioHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+            "Accept" to "application/json",
+            "x-requested-with" to "XMLHttpRequest",
+            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8"
         )
 
         val semaphore = Semaphore(3)
@@ -136,7 +144,7 @@ class NativeParallelRefreshEngine(
                                 "ajio.com",
                                 "[AJIO] Fetching ${target.name} (page 0)..."
                             )
-                            val resp0 = CronetNetworkClient.executeCronetRequest("${target.baseUrl}&currentPage=0", pincode)
+                            val resp0 = CronetNetworkClient.executeCronetWithHeaders("${target.baseUrl}&currentPage=0", ajioHeaders)
                             if (resp0.status in 200..299) {
                                 val parsed0 = AjioNativeParser.parse(resp0.body, bullionRate24)
                                 var urlDiscovered = parsed0.candidates.size
@@ -148,9 +156,28 @@ class NativeParallelRefreshEngine(
                                 }
 
                                 val pagesToFetch = parsed0.totalPages.coerceAtMost(maxPages.coerceAtLeast(8))
+                                
+                                database.dao().insertRawPayload(
+                                    RawBridgePayloadEntity(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "ajio_master_${target.name.replace(" ", "_")}_page_0",
+                                        receivedAt = System.currentTimeMillis(),
+                                        json = resp0.body
+                                    )
+                                )
+
                                 if (pagesToFetch > 1) {
                                     (1 until pagesToFetch).forEach { page ->
-                                        val pResp = CronetNetworkClient.executeCronetRequest("${target.baseUrl}&currentPage=$page", pincode)
+                                        val pResp = CronetNetworkClient.executeCronetWithHeaders("${target.baseUrl}&currentPage=$page", ajioHeaders)
+                                        database.dao().insertRawPayload(
+                                            RawBridgePayloadEntity(
+                                                id = UUID.randomUUID().toString(),
+                                                store = "ajio_master_${target.name.replace(" ", "_")}_page_$page",
+                                                receivedAt = System.currentTimeMillis(),
+                                                json = pResp.body
+                                            )
+                                        )
+
                                         if (pResp.status in 200..299) {
                                             val pParsed = AjioNativeParser.parse(pResp.body, bullionRate24)
                                             val pSaved = saveCandidates("ajio.com", pParsed.candidates, pincode)
@@ -192,6 +219,12 @@ class NativeParallelRefreshEngine(
             }.awaitAll()
         }
 
+        // Safe status preservation for stale items (no rate-limiting storm)
+        val staleItems = database.dao().getStaleProducts("ajio.com", start)
+        if (staleItems.isNotEmpty()) {
+            activityRepository?.log(RefreshLogSeverity.Info, "ajio.com", "[AJIO] Preserving status for ${staleItems.size} catalog items")
+        }
+        
         val duration = System.currentTimeMillis() - start
         val result = StoreRefreshProgress("ajio.com", discovered, valid, duration, true, lastError)
         onProgress(result)
@@ -239,6 +272,12 @@ class NativeParallelRefreshEngine(
             )
         )
 
+        val desktopHeaders = mapOf(
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
+        )
+
         for (target in flipkartTargets) {
             val urlStart = System.currentTimeMillis()
             try {
@@ -247,7 +286,7 @@ class NativeParallelRefreshEngine(
                     "flipkart.com",
                     "[Flipkart] Fetching ${target.name}..."
                 )
-                val resp1 = CronetNetworkClient.executeCronetRequest(target.url, pincode)
+                val resp1 = CronetNetworkClient.executeCronetWithHeaders(target.url, desktopHeaders)
                 if (resp1.status in 200..299) {
                     val parsed1 = FlipkartNativeParser.parse(resp1.body, "flipkart.com", bullionRate24)
                     var targetDiscovered = parsed1.candidates.size
@@ -263,7 +302,7 @@ class NativeParallelRefreshEngine(
                                 async {
                                     semaphore.withPermit {
                                         val pageParam = if (target.url.contains("?")) "&page=$page" else "?page=$page"
-                                        val resp = CronetNetworkClient.executeCronetRequest("${target.url}$pageParam", pincode)
+                                        val resp = CronetNetworkClient.executeCronetWithHeaders("${target.url}$pageParam", desktopHeaders)
                                         if (resp.status in 200..299) {
                                             val p = FlipkartNativeParser.parse(resp.body, "flipkart.com", bullionRate24)
                                             val s = saveCandidates("flipkart.com", p.candidates, pincode)
@@ -531,14 +570,23 @@ class NativeParallelRefreshEngine(
                 "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
             )
 
-            val urlDescriptor = "Myntra Gold Coins PLP (window.__myx)"
+            val gatewayHeaders = mapOf(
+                "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept" to "application/json",
+                "x-myntraweb" to "Yes",
+                "x-requested-with" to "browser",
+                "x-meta-app" to "channel=web",
+                "Referer" to "https://www.myntra.com/gold-coin",
+            )
+
+            val urlDescriptor = "Myntra Gold Coins PLP"
             activityRepository?.log(
                 RefreshLogSeverity.Info,
                 "myntra.com",
                 "[Myntra] Fetching $urlDescriptor (page 1)..."
             )
 
-            // Step 1: Query main HTML page with Desktop User-Agent (which embeds window.__myx)
+            // Step 1: Query main HTML page with Desktop User-Agent
             val pageResp = CronetNetworkClient.executeCronetWithHeaders("https://www.myntra.com/gold-coin?p=1", desktopHeaders)
             if (pageResp.status in 200..299 && pageResp.body.contains("window.__myx")) {
                 val parsed = MyntraNativeParser.parse(pageResp.body, bullionRate24)
@@ -546,16 +594,22 @@ class NativeParallelRefreshEngine(
                 valid += saveCandidates("myntra.com", parsed.candidates, pincode)
 
                 val totalCount = parsed.totalCount
-                val totalPages = ((totalCount + 49) / 50).coerceAtMost(maxPages.coerceAtLeast(8))
+                val totalPages = ((totalCount + 49) / 50).coerceAtMost(maxPages.coerceAtLeast(10))
                 if (totalPages > 1) {
                     val semaphore = Semaphore(2)
                     coroutineScope {
                         (2..totalPages).map { page ->
                             async {
                                 semaphore.withPermit {
-                                    val r = CronetNetworkClient.executeCronetWithHeaders("https://www.myntra.com/gold-coin?p=$page", desktopHeaders)
-                                    if (r.status in 200..299) {
-                                        val p = MyntraNativeParser.parse(r.body, bullionRate24)
+                                    val offset = (page - 1) * 50
+                                    val gatewayUrl = "https://www.myntra.com/gateway/v4/search/gold-coin?rows=50&o=$offset&p=$page&plaEnabled=true&xdEnabled=false&isFacet=true&pincode=$pincode"
+                                    val r = CronetNetworkClient.executeCronetWithHeaders(gatewayUrl, gatewayHeaders)
+                                    val bodyToParse = if (r.status in 200..299) r.body else {
+                                        val htmlR = CronetNetworkClient.executeCronetWithHeaders("https://www.myntra.com/gold-coin?p=$page", desktopHeaders)
+                                        if (htmlR.status in 200..299) htmlR.body else ""
+                                    }
+                                    if (bodyToParse.isNotEmpty()) {
+                                        val p = MyntraNativeParser.parse(bodyToParse, bullionRate24)
                                         val s = saveCandidates("myntra.com", p.candidates, pincode)
                                         synchronized(this@NativeParallelRefreshEngine) {
                                             discovered += p.candidates.size
@@ -574,15 +628,7 @@ class NativeParallelRefreshEngine(
                     "[Myntra] $urlDescriptor: $discovered discovered, $valid valid saved (${totalPages} pages, ${urlElapsed}ms)"
                 )
             } else {
-                // Step 2: Gateway API fallback
-                val gatewayHeaders = mapOf(
-                    "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept" to "application/json",
-                    "x-myntraweb" to "Yes",
-                    "x-requested-with" to "browser",
-                    "x-meta-app" to "channel=web",
-                    "Referer" to "https://www.myntra.com/gold-coin",
-                )
+                // Step 2: Direct Gateway API fallback for all pages
                 val gatewayUrl = "https://www.myntra.com/gateway/v4/search/gold-coin?rows=50&o=0&p=1&plaEnabled=true&xdEnabled=false&isFacet=true&pincode=$pincode"
                 activityRepository?.log(
                     RefreshLogSeverity.Info,
@@ -722,80 +768,82 @@ class NativeParallelRefreshEngine(
         store: String,
         candidates: List<ProductCandidate>,
         pincode: String?,
-    ): Int {
-        if (candidates.isEmpty()) return 0
+    ): Int = withContext(Dispatchers.IO) {
+        if (candidates.isEmpty()) return@withContext 0
         val now = System.currentTimeMillis()
         var validSaved = 0
 
-        for (candidate in candidates) {
-            try {
-                val existing = database.dao().productByRetailerId(store, candidate.retailerId)
-                    ?: database.dao().productByCanonicalUrl(candidate.canonicalUrl)
-                    ?: candidate.retailerId.substringBefore('_').takeIf { it != candidate.retailerId }?.let { prefix ->
-                        database.dao().productByRetailerId(store, prefix)
-                    }
-                    ?: if (store == "shopsy.in") {
-                        database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
-                    } else null
+        database.runInTransaction {
+            for (candidate in candidates) {
+                try {
+                    val existing = database.dao().productByRetailerId(store, candidate.retailerId)
+                        ?: database.dao().productByCanonicalUrl(candidate.canonicalUrl)
+                        ?: candidate.retailerId.substringBefore('_').takeIf { it != candidate.retailerId }?.let { prefix ->
+                            database.dao().productByRetailerId(store, prefix)
+                        }
+                        ?: if (store == "shopsy.in") {
+                            database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
+                        } else null
 
-                val entityId = existing?.id ?: UUID.randomUUID().toString()
-                val targetStore = existing?.store ?: store
-                val targetRetailerId = existing?.retailerId ?: candidate.retailerId
+                    val entityId = existing?.id ?: UUID.randomUUID().toString()
+                    val targetStore = existing?.store ?: store
+                    val targetRetailerId = existing?.retailerId ?: candidate.retailerId
 
-                val entity = ProductEntity(
-                    id = entityId,
-                    store = targetStore,
-                    retailerId = targetRetailerId,
-                    canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
-                    name = candidate.name ?: existing?.name ?: candidate.retailerId,
-                    brand = candidate.brand ?: existing?.brand,
-                    grams = candidate.grams ?: existing?.grams,
-                    karat = candidate.karat ?: existing?.karat,
-                    purity = candidate.purity ?: existing?.purity,
-                    price = candidate.price,
-                    couponPrice = candidate.couponPrice,
-                    status = if (candidate.unavailable) "unavailable" else "live",
-                    refreshMethod = "$store-native-parallel",
-                    checkedAt = now,
-                    lastLiveAt = if (!candidate.unavailable) now else existing?.lastLiveAt ?: 0,
-                    manuallyEditedAt = existing?.manuallyEditedAt,
-                    unitWeightGrams = candidate.unitWeightGrams ?: existing?.unitWeightGrams,
-                    quantity = candidate.quantity,
-                    totalWeightGrams = candidate.totalWeightGrams ?: existing?.totalWeightGrams,
-                    weightConfidence = candidate.weightConfidence,
-                    pincode = pincode ?: existing?.pincode,
-                    latitude = existing?.latitude,
-                    longitude = existing?.longitude,
-                    formattedAddress = existing?.formattedAddress,
-                    isBlinkDeal = candidate.isBlinkDeal,
-                    blinkDealPrice = candidate.blinkDealPrice ?: existing?.blinkDealPrice,
-                    blinkDealEndTime = existing?.blinkDealEndTime,
-                    deliverable = !candidate.unavailable,
-                    isMicroCoin = candidate.isMicroCoin,
-                )
+                    val entity = ProductEntity(
+                        id = entityId,
+                        store = targetStore,
+                        retailerId = targetRetailerId,
+                        canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
+                        name = candidate.name ?: existing?.name ?: candidate.retailerId,
+                        brand = candidate.brand ?: existing?.brand,
+                        grams = candidate.grams ?: existing?.grams,
+                        karat = candidate.karat ?: existing?.karat,
+                        purity = candidate.purity ?: existing?.purity,
+                        price = candidate.price,
+                        couponPrice = candidate.couponPrice,
+                        status = if (candidate.unavailable) "unavailable" else "live",
+                        refreshMethod = "$store-native-parallel",
+                        checkedAt = now,
+                        lastLiveAt = if (!candidate.unavailable) now else existing?.lastLiveAt ?: 0,
+                        manuallyEditedAt = existing?.manuallyEditedAt,
+                        unitWeightGrams = candidate.unitWeightGrams ?: existing?.unitWeightGrams,
+                        quantity = candidate.quantity,
+                        totalWeightGrams = candidate.totalWeightGrams ?: existing?.totalWeightGrams,
+                        weightConfidence = candidate.weightConfidence,
+                        pincode = pincode ?: existing?.pincode,
+                        latitude = existing?.latitude,
+                        longitude = existing?.longitude,
+                        formattedAddress = existing?.formattedAddress,
+                        isBlinkDeal = candidate.isBlinkDeal,
+                        blinkDealPrice = candidate.blinkDealPrice ?: existing?.blinkDealPrice,
+                        blinkDealEndTime = existing?.blinkDealEndTime,
+                        deliverable = !candidate.unavailable,
+                        isMicroCoin = candidate.isMicroCoin,
+                    )
 
-                database.dao().upsertProduct(entity)
+                    database.dao().upsertProduct(entity)
 
-                // Track price history if changed
-                if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
-                    if (!database.dao().hasPriceHistory(entityId, candidate.price, candidate.couponPrice, now)) {
-                        database.dao().insertPriceHistory(
-                            ProductPriceHistoryEntity(
-                                productId = entityId,
-                                price = candidate.price,
-                                couponPrice = candidate.couponPrice,
-                                checkedAt = now,
+                    // Track price history if changed
+                    if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
+                        if (!database.dao().hasPriceHistory(entityId, candidate.price, candidate.couponPrice, now)) {
+                            database.dao().insertPriceHistory(
+                                ProductPriceHistoryEntity(
+                                    productId = entityId,
+                                    price = candidate.price,
+                                    couponPrice = candidate.couponPrice,
+                                    checkedAt = now,
+                                )
                             )
-                        )
+                        }
                     }
-                }
 
-                validSaved++
-            } catch (e: Exception) {
-                Log.w(tag, "Failed to save product ${candidate.retailerId}: ${e.message}")
+                    validSaved++
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to save product ${candidate.retailerId}: ${e.message}")
+                }
             }
         }
 
-        return validSaved
+        validSaved
     }
 }

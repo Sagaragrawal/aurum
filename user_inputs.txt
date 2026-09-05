@@ -1,0 +1,54 @@
+<USER_REQUEST>
+grab live data from all master urls.
+whatever failed or we didnt get in master or what we ahve and wasnt part of master url refresh them then.
+all products should refresh everytme get live data dnt then marked accordingly.
+current code is not bringing full live data.
+
+and tempeory store per master url raw data so you can check where it stopped. ajio alone should get over 900 gold product across all its url yet our code gets parital data and then doesnt even update what we ahve 
+
+AJIO Desktop / REST Endpoints:
+◦
+Category 8303 API: https://www.ajio.com/api/category/8303?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio
+◦
+Category 176606 API: https://www.ajio.com/api/category/176606?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio
+◦
+Category 169379 API: https://www.ajio.com/api/category/169379?fields=SITE&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio
+◦
+Category 169373 API: https://www.ajio.com/api/category/169373?fields=SITE&pageSize=45&format=json&query=%3Arelev
+<truncated 467 bytes>
+s://www.ajio.com/api/p/{productId}
+•
+Amazon Desktop Pagination Endpoint:
+◦
+https://www.amazon.in/s?i=jewelry&rh=n%3A2908910031%2Cp_n_material_two_browse-bin%3A2160347031&s=popularity-rank&dc&fs=true&rnid=2160329031&xpid=ZrCUqOwcv7FyR&page={pageNumber}&ref=sr_pg_{pageNumber}
+•
+Flipkart Desktop Search & Minutes Endpoints:
+◦
+Standard Category PLP: https://www.flipkart.com/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.material%255B%255D%3DYellow%2BGold&p%5B%5D=facets.material%255B%255D%3DGold&page={pageNumber}
+◦
+Flipkart Minutes Search: https://www.flipkart.com/minutes/search?q=gold+coin
+•
+Myntra Desktop PLP & Gateway API Endpoints:
+◦
+Web PLP (Desktop Header): https://www.myntra.com/gold-coin?p={pageNumber}
+◦
+Gateway API v4: https://www.myntra.com/gateway/v4/search/gold-coin?rows=50&o={offset}&p={pageNumber}&plaEnabled=true&xdEnabled=false&isFacet=true
+◦
+Product Detail API: https://www.myntra.com/gateway/v2/product/{productId}
+
+Shopsy (shopsy.in):
+◦
+Gold & Silver Coins Category: https://www.shopsy.in/gold-silver-coins/pr?sid=mcr,73x&marketplace=FLIPKART&p[]=facets.material[]=Gold&p[]=facets.material[]=Yellow+Gold&p[]=facets.gold_purity%5B%5D=24+%28999%29+K&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK
+
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-09-05T21:05:01+05:30.
+
+The user's current state is as follows:
+Active Document: c:\Users\Agraw\Downloads\Mobile Devices\aurum-v4.9.7-ajio-browser-lifecycle-complete\aurum-v4.9.7-ajio-browser-lifecycle\aurum-android-v2\app\src\main\java\com\aurum\intelligence\data\NativeParallelRefreshEngine.kt (LANGUAGE_UNSPECIFIED)
+Cursor is on line: 1
+</ADDITIONAL_METADATA>
+<USER_SETTINGS_CHANGE>
+The user changed setting `Model Selection` from Gemini 3.8 Flash (Low) to Gemini 3.1 Pro (Low). No need to comment on this change if the user doesn't ask about it. If reporting what model you are, please use a human readable name instead of the exact string.
+</USER_SETTINGS_CHANGE>

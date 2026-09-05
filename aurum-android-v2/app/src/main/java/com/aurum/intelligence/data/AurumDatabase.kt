@@ -165,6 +165,12 @@ interface AurumDao {
     @Query("SELECT * FROM products WHERE canonicalUrl = :canonicalUrl LIMIT 1")
     suspend fun productByCanonicalUrl(canonicalUrl: String): ProductEntity?
 
+    @Query("SELECT * FROM products WHERE store = :store AND checkedAt < :checkedBefore")
+    suspend fun getStaleProducts(store: String, checkedBefore: Long): List<ProductEntity>
+
+    @Query("UPDATE products SET status = 'out_of_stock', checkedAt = :now WHERE id = :id")
+    suspend fun markOutOfStock(id: String, now: Long)
+
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
     suspend fun productById(id: String): ProductEntity?
 
