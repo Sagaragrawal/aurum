@@ -1,0 +1,18 @@
+/.gradle/
+/build/
+/**/build/
+/.kotlin/
+/local.properties
+/*.jks
+/*.keystore
+
+# Logs, databases, and temporary scratch files
+*.log
+logcat*.txt
+*_logs.txt
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.bin
+*.class

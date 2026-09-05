@@ -1,0 +1,53 @@
+package com.aurum.intelligence.data
+
+import android.content.Context
+import android.os.Environment
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+object DatabaseBackupManager {
+    private const val BACKUP_FILENAME = "aurum-persistent.aurum"
+
+    fun getBackupFile(context: Context): File {
+        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val aurumDir = File(documentsDir, "Aurum").apply { if (!exists()) mkdirs() }
+        val publicBackup = File(aurumDir, BACKUP_FILENAME)
+        if (publicBackup.exists() || aurumDir.canWrite()) return publicBackup
+
+        val externalFiles = context.getExternalFilesDir(null) ?: context.filesDir
+        val fallbackDir = File(externalFiles, "Aurum").apply { if (!exists()) mkdirs() }
+        return File(fallbackDir, BACKUP_FILENAME)
+    }
+
+    suspend fun createBackup(repository: BridgeRepository, context: Context): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val backupFile = getBackupFile(context)
+            val tempFile = File(backupFile.parentFile, "$BACKUP_FILENAME.tmp")
+            FileOutputStream(tempFile).use { output ->
+                repository.exportArchive(output)
+            }
+            if (tempFile.exists() && tempFile.length() > 0) {
+                if (backupFile.exists()) backupFile.delete()
+                tempFile.renameTo(backupFile)
+                true
+            } else false
+        }.getOrDefault(false)
+    }
+
+    suspend fun checkAndRestoreIfNeeded(database: AurumDatabase, repository: BridgeRepository, context: Context): ArchiveImportResult? = withContext(Dispatchers.IO) {
+        runCatching {
+            val productCount = database.dao().productCount()
+            if (productCount > 0) return@runCatching null // Database has existing data; no restore needed
+
+            val backupFile = getBackupFile(context)
+            if (!backupFile.exists() || backupFile.length() == 0L) return@runCatching null
+
+            FileInputStream(backupFile).use { input ->
+                repository.importArchive(input)
+            }
+        }.getOrNull()
+    }
+}

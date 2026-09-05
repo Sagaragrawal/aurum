@@ -1,0 +1,16 @@
+/.gradle/
+/build/
+/**/build/
+/local.properties
+/*.jks
+/*.keystore
+
+# Logs, databases, and temporary scratch files
+*.log
+logcat*.txt
+*_logs.txt
+*.db
+*.sqlite
+*.class
+flipkart_*.json
+formatted_*.json

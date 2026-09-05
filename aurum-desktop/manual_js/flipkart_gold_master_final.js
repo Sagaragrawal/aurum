@@ -1718,6 +1718,8 @@
             b.length -
             a.length
         )[0] ||
+      (card.querySelector('.s1Q9rs, ._4rR01T, .IRpwTa, ._2WkVRV, .name, [class*="title"]') ? clean(card.querySelector('.s1Q9rs, ._4rR01T, .IRpwTa, ._2WkVRV, .name, [class*="title"]').textContent) : null) ||
+      clean(document.title) ||
       null;
 
     /*
@@ -4243,11 +4245,14 @@
   window.flipkartPdpLog =
     PDP_LOG;
 
+  const isShopsy = typeof location !== 'undefined' && location.hostname && location.hostname.includes("shopsy");
+  const storeName = isShopsy ? "shopsy.in" : "flipkart.com";
+
   const bridgeResult = await fetch("http://localhost:8788/api/browser-bridge/products", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      store: "flipkart.com",
+      store: storeName,
       records: GOLD.map(product => ({
         bridgeSnapshot: true,
         productId: product.pid,
@@ -4262,7 +4267,7 @@
       }))
     })
   }).then(r => r.json()).catch(error => ({ error: String(error) }));
-  console.log("Aurum Flipkart bridge:", bridgeResult);
+  console.log("Aurum " + storeName + " bridge:", bridgeResult);
 
   /********************************************************************
    * STATS

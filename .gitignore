@@ -7,10 +7,24 @@ yarn-debug.log*
 yarn-error.log*
 data/browser-profile/
 aurum-browser-profiles/
-aurum-android/local.properties
-aurum-android/gradlew-laptop
-aurum-android/README.laptop.md
-aurum-android/.laptop-wrapper/
-aurum-android/.gradle/
-aurum-android/**/build/
 .DS_Store
+
+# Android build & local files across all modules
+**/.gradle/
+**/build/
+**/.kotlin/
+**/local.properties
+**/gradlew-laptop
+**/README.laptop.md
+**/.laptop-wrapper/
+
+# Logs, databases, and temporary scratch files
+*.log
+logcat*.txt
+*_logs.txt
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.bin
+*.class
