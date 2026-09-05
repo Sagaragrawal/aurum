@@ -45,6 +45,7 @@ object CronetNetworkClient {
         targetUrl: String,
         headers: Map<String, String>
     ): ProductFetchResponse = suspendCancellableCoroutine { continuation ->
+        val startTime = System.currentTimeMillis()
         val engine = cronetEngine
         if (engine == null) {
             Log.w("CronetClient", "Cronet engine is NULL! Falling back to standard HttpURLConnection. Init error: $initError")
@@ -74,14 +75,36 @@ object CronetNetworkClient {
 
             override fun onSucceeded(request: UrlRequest, info: UrlResponseInfo) {
                 val body = outputStream.toString("UTF-8")
-                Log.i("CronetClient", "Cronet request succeeded with HTTP ${info.httpStatusCode}, protocol=${info.negotiatedProtocol}")
-                continuation.resume(ProductFetchResponse(info.httpStatusCode, body))
+                val durationMs = System.currentTimeMillis() - startTime
+                val respHeaders = info.allHeaders ?: emptyMap()
+                val protocol = info.negotiatedProtocol ?: ""
+                Log.i("CronetClient", "Cronet request succeeded HTTP ${info.httpStatusCode}, protocol=$protocol, duration=${durationMs}ms, bytes=${body.length}")
+                continuation.resume(
+                    ProductFetchResponse(
+                        status = info.httpStatusCode,
+                        body = body,
+                        headers = respHeaders,
+                        protocol = protocol,
+                        durationMs = durationMs
+                    )
+                )
             }
 
             override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: CronetException) {
                 val body = outputStream.toString("UTF-8")
-                Log.e("CronetClient", "Cronet request failed HTTP ${info?.httpStatusCode}: ${error.message}")
-                continuation.resume(ProductFetchResponse(info?.httpStatusCode ?: 500, body))
+                val durationMs = System.currentTimeMillis() - startTime
+                val respHeaders = info?.allHeaders ?: emptyMap()
+                val protocol = info?.negotiatedProtocol ?: ""
+                Log.e("CronetClient", "Cronet request failed HTTP ${info?.httpStatusCode ?: 500}: ${error.message}, duration=${durationMs}ms")
+                continuation.resume(
+                    ProductFetchResponse(
+                        status = info?.httpStatusCode ?: 500,
+                        body = body,
+                        headers = respHeaders,
+                        protocol = protocol,
+                        durationMs = durationMs
+                    )
+                )
             }
         }
 
@@ -96,6 +119,7 @@ object CronetNetworkClient {
     }
 
     private fun executeStandardRequestWithHeaders(targetUrl: String, headers: Map<String, String>): ProductFetchResponse {
+        val startTime = System.currentTimeMillis()
         return try {
             val url = URL(targetUrl)
             val conn = (url.openConnection() as HttpURLConnection).apply {
@@ -107,9 +131,24 @@ object CronetNetworkClient {
             val code = conn.responseCode
             val stream = if (code in 200..299) conn.inputStream else conn.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            ProductFetchResponse(code, text)
+            val durationMs = System.currentTimeMillis() - startTime
+            val respHeaders = conn.headerFields.filterKeys { it != null }
+            ProductFetchResponse(
+                status = code,
+                body = text,
+                headers = respHeaders,
+                protocol = "http/1.1",
+                durationMs = durationMs
+            )
         } catch (e: Exception) {
-            ProductFetchResponse(500, e.message.orEmpty())
+            val durationMs = System.currentTimeMillis() - startTime
+            ProductFetchResponse(
+                status = 500,
+                body = e.message.orEmpty(),
+                headers = emptyMap(),
+                protocol = "unknown",
+                durationMs = durationMs
+            )
         }
     }
 
@@ -131,6 +170,25 @@ object CronetNetworkClient {
             "Sec-Fetch-Mode" to "navigate",
             "Sec-Fetch-Site" to "none",
             "Sec-Fetch-User" to "?1"
+        )
+        return executeCronetWithHeaders(targetUrl, headers)
+    }
+
+    suspend fun executeCronetApiRequest(
+        targetUrl: String,
+        pincode: String = "560048",
+        latitude: Double? = 12.9716,
+        longitude: Double? = 77.5946,
+    ): ProductFetchResponse {
+        val headers = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+            "Accept" to "application/json, text/plain, */*",
+            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
+            "Cache-Control" to "no-cache",
+            "Pragma" to "no-cache",
+            "Sec-Fetch-Dest" to "empty",
+            "Sec-Fetch-Mode" to "cors",
+            "Sec-Fetch-Site" to "same-origin"
         )
         return executeCronetWithHeaders(targetUrl, headers)
     }

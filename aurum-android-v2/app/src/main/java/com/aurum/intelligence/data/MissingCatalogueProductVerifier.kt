@@ -184,8 +184,7 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
 
     private fun endpointFor(product: ProductEntity): String? = when (product.store) {
             "ajio.com" -> "https://www.ajio.com/api/p/${product.retailerId}"
-            "myntra.com" -> "https://www.myntra.com/gateway/v2/product/${product.retailerId}"
-            "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl
+            "myntra.com", "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl
             else -> null
         }
 
@@ -209,7 +208,13 @@ data class MissingCatalogueProductResult(
     val unchanged: Int,
     val details: List<ProductRefreshDetail> = emptyList(),
 )
-data class ProductFetchResponse(val status: Int, val body: String)
+data class ProductFetchResponse(
+    val status: Int,
+    val body: String,
+    val headers: Map<String, List<String>> = emptyMap(),
+    val protocol: String = "",
+    val durationMs: Long = 0L,
+)
 
 sealed interface ProductLookup {
     data class Available(
@@ -282,6 +287,9 @@ sealed interface ProductLookup {
             if (unavailable) return Unavailable(price)
 
             val parsedName = stringFor(body, "name") ?: stringFor(body, "productDisplayName") ?: stringFor(body, "title")
+            if (parsedName != null && DatabaseSanitizerEngine.isNonGold(parsedName, "$body $sourceUrl")) {
+                return Unavailable(price)
+            }
             val extractedWeight = (parsedName ?: "$body $sourceUrl").let { WeightExtractor.parse(it, body) }
             val grams = extractedWeight.totalWeightGrams
 

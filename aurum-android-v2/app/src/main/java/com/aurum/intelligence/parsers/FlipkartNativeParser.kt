@@ -87,6 +87,9 @@ object FlipkartNativeParser {
                                 val brand = titlesObj?.optString("superTitle")?.takeIf(String::isNotBlank)
                                     ?: valObj.optString("productBrand").takeIf(String::isNotBlank)
                                 val unavailable = valObj.optBoolean("outOfStock", false)
+                                    || valObj.optBoolean("unserviceable", false)
+                                    || (valObj.has("isAvailable") && !valObj.optBoolean("isAvailable", true))
+                                    || (valObj.has("deliverable") && !valObj.optBoolean("deliverable", true))
 
                                 val record = BridgeRecord(
                                     retailerId = pid,
@@ -151,6 +154,8 @@ object FlipkartNativeParser {
                 val unavailable = cardHtml.contains("Currently Unavailable", ignoreCase = true)
                         || cardHtml.contains("Out of Stock", ignoreCase = true)
                         || cardHtml.contains("Not Deliverable", ignoreCase = true)
+                        || cardHtml.contains("Cannot be delivered", ignoreCase = true)
+                        || cardHtml.contains("unserviceable", ignoreCase = true)
 
                 val record = BridgeRecord(
                     retailerId = pid,
