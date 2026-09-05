@@ -105,12 +105,8 @@ class NativeParallelRefreshEngine(
         data class AjioTarget(val name: String, val baseUrl: String)
         val ajioTargets = listOf(
             AjioTarget(
-                "Category 83 (Master Gold Jewellery & Coins / 24K & 22K)",
-                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29%3Averticalmetalpurity%3A22+Kt&gridColumns=3&platform=Desktop&store=ajio&curated=true&advfilter=true&pincode=$pincode"
-            ),
-            AjioTarget(
-                "Category 8303 (Women Fine Jewellery / 24K Gold Only)",
-                "https://www.ajio.com/api/category/8303?fields=SITE&pageSize=99&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29&gridColumns=3&platform=Desktop&store=ajio&advfilter=true&pincode=$pincode"
+                "Category 83 (Master 24K Pure Gold Jewellery, Coins & Bars)",
+                "https://www.ajio.com/api/category/83?pageSize=99&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29&gridColumns=3&platform=Desktop&store=ajio&curated=true&advfilter=true&pincode=$pincode"
             )
         )
 
