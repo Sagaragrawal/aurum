@@ -1,10 +1,11 @@
-﻿package com.aurum.intelligence.background
+package com.aurum.intelligence.background
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.aurum.intelligence.AurumApplication
+import com.aurum.intelligence.data.DatabaseBackupManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -19,7 +20,8 @@ class RefreshBroadcastReceiver : BroadcastReceiver() {
             try {
                 if (intent.action == "com.aurum.intelligence.CLEAN_24K") {
                     val deleted = app.database.dao().deleteNon24KProducts()
-                    Log.i("RefreshBroadcast", "CLEAN_24K executed: deleted $deleted non-24K products from database")
+                    DatabaseBackupManager.createBackup(app.repository, app)
+                    Log.i("RefreshBroadcast", "CLEAN_24K executed: deleted $deleted non-24K products, updated /sdcard/Aurum/aurum.db")
                     return@launch
                 }
 

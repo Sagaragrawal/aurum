@@ -9,11 +9,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 object DatabaseBackupManager {
-    private const val BACKUP_FILENAME = "aurum-persistent.aurum"
+    private const val BACKUP_FILENAME = "aurum.db"
 
     fun getBackupFile(context: Context): File {
-        val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-        val aurumDir = File(documentsDir, "Aurum").apply { if (!exists()) mkdirs() }
+        val rootSdcard = Environment.getExternalStorageDirectory()
+        val aurumDir = File(rootSdcard, "Aurum").apply { if (!exists()) mkdirs() }
         val publicBackup = File(aurumDir, BACKUP_FILENAME)
         if (publicBackup.exists() || aurumDir.canWrite()) return publicBackup
 
@@ -24,16 +24,22 @@ object DatabaseBackupManager {
 
     suspend fun createBackup(repository: BridgeRepository, context: Context): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            val dbFile = context.getDatabasePath("aurum.db")
             val backupFile = getBackupFile(context)
-            val tempFile = File(backupFile.parentFile, "$BACKUP_FILENAME.tmp")
-            FileOutputStream(tempFile).use { output ->
-                repository.exportArchive(output)
-            }
-            if (tempFile.exists() && tempFile.length() > 0) {
-                if (backupFile.exists()) backupFile.delete()
-                tempFile.renameTo(backupFile)
+            if (dbFile.exists() && dbFile.length() > 0) {
+                dbFile.copyTo(backupFile, overwrite = true)
                 true
-            } else false
+            } else {
+                val tempFile = File(backupFile.parentFile, "$BACKUP_FILENAME.tmp")
+                FileOutputStream(tempFile).use { output ->
+                    repository.exportArchive(output)
+                }
+                if (tempFile.exists() && tempFile.length() > 0) {
+                    if (backupFile.exists()) backupFile.delete()
+                    tempFile.renameTo(backupFile)
+                    true
+                } else false
+            }
         }.getOrDefault(false)
     }
 
