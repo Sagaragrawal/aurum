@@ -28,6 +28,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.aurum.intelligence.REFRESH" />
+                <action android:name="com.aurum.intelligence.CLEAN_24K" />
             </intent-filter>
         </receiver>
     </application>

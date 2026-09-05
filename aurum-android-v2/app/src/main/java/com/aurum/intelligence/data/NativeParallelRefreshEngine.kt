@@ -945,8 +945,9 @@ class NativeParallelRefreshEngine(
         val unrefreshed = database.dao().allProducts().filter { p ->
             p.store == store &&
                 p.checkedAt < startedAt &&
-                p.status != "unavailable"
-        }
+                p.status != "unavailable" &&
+                (p.karat == 24.0 || p.karat == null)
+        }.take(30)
         if (unrefreshed.isEmpty() || store == "ajio.com") return 0
 
         activityRepository?.log(

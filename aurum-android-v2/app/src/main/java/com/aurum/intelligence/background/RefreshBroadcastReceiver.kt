@@ -14,9 +14,21 @@ class RefreshBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val app = context.applicationContext as? AurumApplication ?: return
         val pendingResult = goAsync()
-        Log.i("RefreshBroadcast", "Received refresh broadcast action=${intent.action}")
+        Log.i("RefreshBroadcast", "Received broadcast action=${intent.action}")
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                if (intent.action == "com.aurum.intelligence.CLEAN_24K") {
+                    val deleted = app.database.dao().deleteNon24KProducts()
+                    Log.i("RefreshBroadcast", "CLEAN_24K executed: deleted $deleted non-24K products from database")
+                    return@launch
+                }
+
+                // Automatic cleanup of non-24K coins before refresh to focus on 24K
+                val deleted = app.database.dao().deleteNon24KProducts()
+                if (deleted > 0) {
+                    Log.i("RefreshBroadcast", "Pre-refresh cleanup: purged $deleted non-24K products from database")
+                }
+
                 val settings = app.settingsRepository.settings.first()
                 val pincode = intent.getStringExtra("pincode") ?: settings.pincode.takeIf { it.isNotBlank() } ?: "560048"
                 val maxPages = intent.getIntExtra("maxPages", 10)
