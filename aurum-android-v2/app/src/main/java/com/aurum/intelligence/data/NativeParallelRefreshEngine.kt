@@ -947,7 +947,7 @@ class NativeParallelRefreshEngine(
                 p.checkedAt < startedAt &&
                 p.status != "unavailable"
         }
-        if (unrefreshed.isEmpty()) return 0
+        if (unrefreshed.isEmpty() || store == "ajio.com") return 0
 
         activityRepository?.log(
             RefreshLogSeverity.Info,
