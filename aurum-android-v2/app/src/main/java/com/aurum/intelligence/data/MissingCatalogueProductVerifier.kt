@@ -62,25 +62,46 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
                     onProgress(currentCount, total, product)
                     when (val result = fetchWithRetry(product, fetcher)) {
                         is ProductLookup.Available -> {
-                            val now = System.currentTimeMillis()
-                            database.dao().upsertProduct(product.copy(
+                            val vResult = Product24KValidator.validate(
                                 name = result.name ?: product.name,
                                 brand = result.brand ?: product.brand,
-                                price = result.price,
+                                karat = product.karat ?: 24.0,
+                                purity = product.purity,
                                 grams = result.grams ?: product.grams,
-                                couponPrice = result.couponPrice,
-                                status = "live",
-                                refreshMethod = result.refreshMethod,
-                                checkedAt = now,
-                                lastLiveAt = now,
-                                weightConfidence = result.weightConfidence,
-                                isBlinkDeal = result.isBlinkDeal,
-                                blinkDealPrice = result.blinkDealPrice,
-                                deliverable = true,
-                            ))
-                            synchronized(details) {
-                                updated += 1
-                                details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "live")
+                                price = result.price,
+                                canonicalUrl = product.canonicalUrl,
+                                retailerId = product.retailerId,
+                            )
+                            if (!vResult.isValid) {
+                                database.dao().deleteProductHistory(product.id)
+                                database.dao().deleteProduct(product.id)
+                                synchronized(details) {
+                                    unavailable += 1
+                                    details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "deleted_invalid")
+                                }
+                            } else {
+                                val now = System.currentTimeMillis()
+                                database.dao().upsertProduct(product.copy(
+                                    name = vResult.normalizedName ?: result.name ?: product.name,
+                                    brand = result.brand ?: product.brand,
+                                    price = result.price,
+                                    grams = result.grams ?: product.grams,
+                                    karat = vResult.normalizedKarat ?: product.karat ?: 24.0,
+                                    purity = vResult.normalizedPurity ?: product.purity ?: "999",
+                                    couponPrice = result.couponPrice,
+                                    status = "live",
+                                    refreshMethod = result.refreshMethod,
+                                    checkedAt = now,
+                                    lastLiveAt = now,
+                                    weightConfidence = result.weightConfidence,
+                                    isBlinkDeal = result.isBlinkDeal,
+                                    blinkDealPrice = result.blinkDealPrice,
+                                    deliverable = true,
+                                ))
+                                synchronized(details) {
+                                    updated += 1
+                                    details += ProductRefreshDetail(product.canonicalUrl, result.price, result.grams ?: product.grams, product.karat, "live")
+                                }
                             }
                         }
                         is ProductLookup.Unavailable -> {
@@ -153,12 +174,29 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
     private suspend fun applyResult(product: ProductEntity, result: ProductLookup) {
         when (result) {
             is ProductLookup.Available -> {
+                val vResult = Product24KValidator.validate(
+                    name = result.name ?: product.name,
+                    brand = result.brand ?: product.brand,
+                    karat = product.karat ?: 24.0,
+                    purity = product.purity,
+                    grams = result.grams ?: product.grams,
+                    price = result.price,
+                    canonicalUrl = product.canonicalUrl,
+                    retailerId = product.retailerId,
+                )
+                if (!vResult.isValid) {
+                    database.dao().deleteProductHistory(product.id)
+                    database.dao().deleteProduct(product.id)
+                    return
+                }
                 val now = System.currentTimeMillis()
                 database.dao().upsertProduct(product.copy(
-                    name = result.name ?: product.name,
+                    name = vResult.normalizedName ?: result.name ?: product.name,
                     brand = result.brand ?: product.brand,
                     price = result.price,
                     grams = result.grams ?: product.grams,
+                    karat = vResult.normalizedKarat ?: product.karat ?: 24.0,
+                    purity = vResult.normalizedPurity ?: product.purity ?: "999",
                     couponPrice = result.couponPrice,
                     status = "live",
                     refreshMethod = result.refreshMethod,

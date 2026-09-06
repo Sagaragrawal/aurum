@@ -17,10 +17,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 object CronetNetworkClient {
 
     private var cronetEngine: CronetEngine? = null
+    private var appContext: Context? = null
     var initError: String? = null
         private set
 
     fun initialize(context: Context) {
+        appContext = context.applicationContext
         if (cronetEngine == null) {
             try {
                 com.google.android.gms.net.CronetProviderInstaller.installProvider(context)
@@ -38,6 +40,18 @@ object CronetNetworkClient {
                 initError = e.message
                 Log.e("CronetClient", "Failed to create CronetEngine: ${e.message}", e)
             }
+        }
+    }
+
+    fun resetSession() {
+        val ctx = appContext ?: return
+        synchronized(this) {
+            runCatching {
+                cronetEngine?.shutdown()
+            }
+            cronetEngine = null
+            initialize(ctx)
+            Log.i("CronetClient", "Cronet session successfully reset/reinitialized.")
         }
     }
 
@@ -91,20 +105,26 @@ object CronetNetworkClient {
             }
 
             override fun onFailed(request: UrlRequest, info: UrlResponseInfo?, error: CronetException) {
-                val body = outputStream.toString("UTF-8")
-                val durationMs = System.currentTimeMillis() - startTime
-                val respHeaders = info?.allHeaders ?: emptyMap()
-                val protocol = info?.negotiatedProtocol ?: ""
-                Log.e("CronetClient", "Cronet request failed HTTP ${info?.httpStatusCode ?: 500}: ${error.message}, duration=${durationMs}ms")
-                continuation.resume(
-                    ProductFetchResponse(
-                        status = info?.httpStatusCode ?: 500,
-                        body = body,
-                        headers = respHeaders,
-                        protocol = protocol,
-                        durationMs = durationMs
+                Log.w("CronetClient", "Cronet request failed (${error.message}). Attempting fallback to standard HttpURLConnection for $targetUrl...")
+                try {
+                    val fallback = executeStandardRequestWithHeaders(targetUrl, headers)
+                    continuation.resume(fallback)
+                } catch (e: Exception) {
+                    val body = outputStream.toString("UTF-8")
+                    val durationMs = System.currentTimeMillis() - startTime
+                    val respHeaders = info?.allHeaders ?: emptyMap()
+                    val protocol = info?.negotiatedProtocol ?: ""
+                    Log.e("CronetClient", "Fallback also failed HTTP ${info?.httpStatusCode ?: 500}: ${e.message}, duration=${durationMs}ms")
+                    continuation.resume(
+                        ProductFetchResponse(
+                            status = info?.httpStatusCode ?: 500,
+                            body = body,
+                            headers = respHeaders,
+                            protocol = protocol,
+                            durationMs = durationMs
+                        )
                     )
-                )
+                }
             }
         }
 

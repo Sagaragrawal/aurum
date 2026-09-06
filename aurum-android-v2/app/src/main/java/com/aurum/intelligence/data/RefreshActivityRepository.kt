@@ -11,7 +11,7 @@ enum class RefreshLogSeverity {
 }
 
 class RefreshActivityRepository(
-    private val database: AurumDatabase,
+    private val database: AurumInternalDatabase,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     val logs: Flow<List<RefreshActivityLogEntity>> = database.dao()

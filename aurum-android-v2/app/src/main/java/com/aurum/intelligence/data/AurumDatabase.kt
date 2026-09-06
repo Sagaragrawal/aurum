@@ -180,7 +180,26 @@ interface AurumDao {
     @Query("DELETE FROM products WHERE id = :id")
     suspend fun deleteProduct(id: String)
 
-    @Query("DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 995.0 AND CAST(purity AS REAL) >= 1.0) OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 0.995 AND CAST(purity AS REAL) < 1.0) OR name LIKE '%22K%' OR name LIKE '%22 K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%' OR name LIKE '%916%' OR name LIKE '%18K%' OR name LIKE '%14K%' OR price <= 0")
+    @Query(
+        "DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) " +
+            "OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 995.0 AND CAST(purity AS REAL) >= 1.0) " +
+            "OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 0.995 AND CAST(purity AS REAL) < 1.0) " +
+            "OR name LIKE '%22K%' OR name LIKE '%22 K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%' " +
+            "OR name LIKE '%916%' OR name LIKE '%18K%' OR name LIKE '%14K%' OR price <= 0 " +
+            "OR (name LIKE '%silver%' AND name NOT LIKE '%gold%') " +
+            "OR (name LIKE '%platinum%' AND name NOT LIKE '%gold%') " +
+            "OR name LIKE '%idol%' OR name LIKE '%diya%' OR name LIKE '%kalash%' OR name LIKE '%utensil%' OR name LIKE '%vessel%' " +
+            "OR name LIKE '%acrylic base%' " +
+            "OR (name LIKE '%nose pin%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%earring%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%ring%' AND name NOT LIKE '%coin%' AND name NOT LIKE '%bar%') " +
+            "OR (name LIKE '%necklace%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%chain%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%bangle%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%mangalsutra%' AND name NOT LIKE '%coin%') " +
+            "OR (name LIKE '%bracelet%' AND name NOT LIKE '%coin%') " +
+            "OR (name NOT LIKE '%gold%' AND name NOT LIKE '%coin%' AND name NOT LIKE '%bar%' AND name NOT LIKE '%kundan%' AND name NOT LIKE '%refinery%' AND name NOT LIKE '%mmtc%' AND name NOT LIKE '%pamp%')"
+    )
     suspend fun deleteNon24KProducts(): Int
 
     @Query("DELETE FROM product_price_history WHERE productId = :productId")

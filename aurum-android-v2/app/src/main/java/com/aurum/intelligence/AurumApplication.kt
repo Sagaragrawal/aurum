@@ -24,8 +24,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class AurumApplication : Application() {
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     lateinit var database: AurumDatabase
+        private set
+    lateinit var internalDatabase: com.aurum.intelligence.data.AurumInternalDatabase
         private set
     lateinit var repository: BridgeRepository
         private set
@@ -61,15 +63,18 @@ class AurumApplication : Application() {
     private fun initialize() {
         mutableStartupState.value = StartupState.Starting
         runCatching {
+            com.aurum.intelligence.data.ScraperConfigProvider.init(this)
             CronetNetworkClient.initialize(this)
+            internalDatabase = com.aurum.intelligence.data.AurumInternalDatabase.create(this)
             database = AurumDatabase.create(this)
             repository = BridgeRepository(database)
             watchlistRepository = database.createWatchlistRepository()
             bullionRepository = BullionRepository(database)
-            refreshActivityRepository = RefreshActivityRepository(database)
+            refreshActivityRepository = RefreshActivityRepository(internalDatabase)
             settingsRepository = AppSettingsRepository(this)
             nativeParallelRefreshEngine = com.aurum.intelligence.data.NativeParallelRefreshEngine(
                 database = database,
+                internalDatabase = internalDatabase,
                 activityRepository = refreshActivityRepository,
             )
             applicationScope.launch {
@@ -126,12 +131,19 @@ class AurumApplication : Application() {
                             cleanedCount++
                         }
                     }
-                    if (cleanedCount > 0) {
+
+                    // Enforce 100% 24K Gold Coin & Bar compliance on startup
+                    val purgedCount = com.aurum.intelligence.data.DatabaseSanitizerEngine.purgeNon24KGoldCoinsAndBars(database)
+                    if (purgedCount > 0) {
                         refreshActivityRepository.log(
                             com.aurum.intelligence.data.RefreshLogSeverity.Info,
                             null,
-                            "DatabaseSanitizerEngine cleaned $cleanedCount product titles, weights, and karat values in database",
+                            "DatabaseSanitizerEngine purged $purgedCount invalid non-24K/jewelry items from database",
                         )
+                    }
+
+                    if (cleanedCount > 0 || purgedCount > 0) {
+                        DatabaseBackupManager.createBackup(repository, this@AurumApplication)
                     }
                 }.onFailure { failure ->
                     mutableStartupState.value = StartupState.Degraded(

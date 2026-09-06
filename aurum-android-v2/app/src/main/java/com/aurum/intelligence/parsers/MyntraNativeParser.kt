@@ -25,17 +25,18 @@ object MyntraNativeParser {
         val searchData = root.optJSONObject("searchData")
         val results = searchData?.optJSONObject("results")
 
-        val totalCount = results?.optInt("totalCount", 0)
+        val totalCount = root.optInt("totalCount", 0).takeIf { it > 0 }
+            ?: results?.optInt("totalCount", 0)
             ?: searchData?.optInt("totalCount", 0)
-            ?: root.optInt("totalCount", 0)
+            ?: 0
 
-        // Combine organic products and PLA products
-        val productsArray = results?.optJSONArray("products")
+        // Combine organic products and PLA products (check root level first for Gateway API, then nested searchData for SSR)
+        val productsArray = root.optJSONArray("products")
+            ?: results?.optJSONArray("products")
             ?: searchData?.optJSONArray("products")
-            ?: root.optJSONArray("products")
-        val plaArray = results?.optJSONArray("plaProducts")
+        val plaArray = root.optJSONArray("plaProducts")
+            ?: results?.optJSONArray("plaProducts")
             ?: searchData?.optJSONArray("plaProducts")
-            ?: root.optJSONArray("plaProducts")
 
         val candidates = ArrayList<ProductCandidate>()
         val seenIds = HashSet<String>()
@@ -89,6 +90,14 @@ object MyntraNativeParser {
                     "$brand $name"
                 } else name
 
+                val articleAttrs = item.optJSONObject("articleAttributes")
+                val metalAttr = articleAttrs?.optString("metal_article_attr")?.takeIf(String::isNotBlank)
+                    ?: articleAttrs?.optString("Metal")?.takeIf(String::isNotBlank)
+                    ?: if (displayName.contains("silver", ignoreCase = true)) "Silver" else "Gold"
+
+                val purityAttr = articleAttrs?.optString("metal_purity_article_attr")?.takeIf(String::isNotBlank)
+                    ?: articleAttrs?.optString("Purity")?.takeIf(String::isNotBlank)
+
                 val record = BridgeRecord(
                     retailerId = pid,
                     url = fullUrl,
@@ -96,13 +105,14 @@ object MyntraNativeParser {
                     brand = brand,
                     price = price,
                     couponPrice = couponPrice,
-                    metal = "Gold",
+                    metal = metalAttr ?: "Gold",
+                    purity = purityAttr,
                     unavailable = !hasStock,
                 )
 
                 when (val candidate = record.toProductCandidate("myntra.com", bullionRate24)) {
                     is CandidateParseResult.Valid -> candidates.add(candidate.candidate)
-                    is CandidateParseResult.Rejected -> { /* Skip filtered non-gold / implausible items */ }
+                    is CandidateParseResult.Rejected -> { /* Skip filtered non-gold / non-24k / implausible items */ }
                 }
             }
         }

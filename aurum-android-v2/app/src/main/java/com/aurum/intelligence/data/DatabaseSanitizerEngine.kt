@@ -2,8 +2,8 @@ package com.aurum.intelligence.data
 
 object DatabaseSanitizerEngine {
 
-    private val priceBadgeRegex = Regex("(?:₹|Rs\\.?|OFF|off|Only\\s+few|left|\\d+%)", RegexOption.IGNORE_CASE)
-    private val trailingPriceRegex = Regex("(?:₹|Rs\\.?)\\s*[\\d,]+(?:\\.\\d+)?.*$", RegexOption.IGNORE_CASE)
+    private val priceBadgeRegex = Regex("(?:₹|\\bRs\\.?|OFF|off|Only\\s+few|left|\\d+%)", RegexOption.IGNORE_CASE)
+    private val trailingPriceRegex = Regex("(?:₹|\\bRs\\.?)\\s*[\\d,]+(?:\\.\\d+)?.*$", RegexOption.IGNORE_CASE)
     private val discountPercentRegex = Regex("\\b\\d{1,2}%\\s*off.*$", RegexOption.IGNORE_CASE)
     private val inventoryBadgeRegex = Regex("\\bOnly\\s+few\\s+left.*$", RegexOption.IGNORE_CASE)
 
@@ -19,6 +19,7 @@ object DatabaseSanitizerEngine {
 
         // 2. Remove any remaining raw currency symbols or standalone "off" badges
         name = name.replace(Regex("₹\\s*[\\d,]+"), " ")
+            .replace(Regex("\\bRs\\.?\\s*[\\d,]+", RegexOption.IGNORE_CASE), " ")
             .replace(Regex("\\b\\d+%", RegexOption.IGNORE_CASE), " ")
             .replace(Regex("\\s{2,}"), " ")
             .trim()
@@ -37,7 +38,7 @@ object DatabaseSanitizerEngine {
     }
 
     fun resolvePurity(title: String, existingPurity: String?): String? {
-        if (!existingPurity.isNull_or_blank()) return existingPurity
+        if (!existingPurity.isNullOrBlank()) return existingPurity
         return when {
             title.contains("999.9", ignoreCase = true) || title.contains("9999", ignoreCase = true) -> "999.9"
             title.contains("999", ignoreCase = true) -> "999"
@@ -53,6 +54,7 @@ object DatabaseSanitizerEngine {
 
     fun isNonGold(title: String, extraText: String? = null): Boolean {
         val combined = "$title ${extraText.orEmpty()}".lowercase()
+
         // 1. Explicit silver keywords
         if (Regex("\\b(?:silver\\s*coin|silver\\s*bar|silver\\s*pendant|fine\\s*silver|sterling\\s*silver|999\\s*silver|999\\.9\\s*silver|silver\\s*999|9999\\s*silver|chandi|silver\\s*biscuit|silver\\s*round)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
             if (!Regex("\\bgold\\s*coin\\b|\\bgold\\s*bar\\b|\\b24\\s*k\\s*gold\\b|\\b22\\s*k\\s*gold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
@@ -74,8 +76,21 @@ object DatabaseSanitizerEngine {
             return true
         }
         // 5. If title has "silver", "platinum", or "chandi" but no mention of "gold" at all:
+        // 5. Idols, utensils, diyas, kalash, decorative items without coin/bar
+        if (Regex("\\b(?:idol|idols|diya|diyas|kalash|utensil|utensils|vessel|vessels|acrylic\\s*base)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (!Regex("\\b(?:coin|bar)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined) || !Regex("\\bgold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+                return true
+            }
+        }
+        // 6. Non-bullion jewelry (nose pins, earrings, rings, necklaces, chains, bangles, mangalsutras, bracelets)
+        if (Regex("\\b(?:nose\\s*pin|earring|earrings|ring|rings|necklace|necklaces|chain|chains|bangle|bangles|mangalsutra|bracelet|anklet)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (!Regex("\\b(?:coin|bar)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+                return true
+            }
+        }
+        // 7. If title has "silver", "platinum", or "chandi" but no mention of "gold" at all:
         if (!Regex("\\bgold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (Regex("\\b(?:silver|platinum|chandi)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (Regex("\\b(?:silver|platinum|chandi|silverspot)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
                 return true
             }
         }
@@ -114,5 +129,31 @@ object DatabaseSanitizerEngine {
         return true
     }
 
-    private fun String?.isNull_or_blank(): Boolean = this == null || this.trim().isEmpty()
+    suspend fun purgeNon24KGoldCoinsAndBars(database: AurumDatabase): Int {
+        val allProducts = database.dao().allProducts()
+        var deletedCount = 0
+        for (product in allProducts) {
+            val validation = Product24KValidator.validate(
+                name = product.name,
+                store = product.store,
+                karat = product.karat,
+                purity = product.purity,
+                price = product.price,
+                grams = product.grams,
+            )
+            if (!validation.isValid) {
+                database.dao().deleteProduct(product.id)
+                deletedCount++
+            } else if (validation.normalizedTitle != product.name || validation.normalizedKarat != product.karat || validation.normalizedPurity != product.purity) {
+                database.dao().upsertProduct(
+                    product.copy(
+                        name = validation.normalizedTitle,
+                        karat = validation.normalizedKarat,
+                        purity = validation.normalizedPurity,
+                    )
+                )
+            }
+        }
+        return deletedCount
+    }
 }

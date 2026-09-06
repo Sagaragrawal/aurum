@@ -123,14 +123,15 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
     fun refreshEverything() {
         if (refreshing) return
         refreshing = true
-        coroutineScope.launch {
+        application.applicationScope.launch {
             try {
                 application.nativeParallelRefreshEngine.refreshAllParallel(
-                    pincode = settings.pincode ?: "560048",
+                    pincode = settings.pincode,
                     latitude = settings.latitude,
                     longitude = settings.longitude,
                     maxPagesPerStore = 10,
                 )
+                com.aurum.intelligence.data.DatabaseBackupManager.createBackup(application.repository, application)
             } finally {
                 refreshing = false
             }

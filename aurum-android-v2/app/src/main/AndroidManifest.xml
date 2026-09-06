@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -33,6 +34,7 @@
             <intent-filter>
                 <action android:name="com.aurum.intelligence.REFRESH" />
                 <action android:name="com.aurum.intelligence.CLEAN_24K" />
+                <action android:name="com.aurum.intelligence.AUDIT_22K" />
             </intent-filter>
         </receiver>
     </application>

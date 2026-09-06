@@ -13,8 +13,21 @@ object DatabaseBackupManager {
 
     fun getBackupFile(context: Context): File {
         val rootSdcard = Environment.getExternalStorageDirectory()
-        val aurumDir = File(rootSdcard, "Aurum").apply { if (!exists()) mkdirs() }
-        return File(aurumDir, BACKUP_FILENAME)
+        val aurumDbDir = File(rootSdcard, "Aurum/database").apply { if (!exists()) mkdirs() }
+        val targetFile = File(aurumDbDir, BACKUP_FILENAME)
+
+        // Migrate from lowercase aurum if present
+        runCatching {
+            val legacyFile = File(rootSdcard, "aurum/aurum.db")
+            if (legacyFile.exists() && (!targetFile.exists() || targetFile.length() == 0L)) {
+                legacyFile.copyTo(targetFile, overwrite = true)
+            }
+            val dcimAurum = File(File(rootSdcard, "DCIM"), "Aurum")
+            if (dcimAurum.exists() && dcimAurum.isDirectory) {
+                dcimAurum.deleteRecursively()
+            }
+        }
+        return targetFile
     }
 
     suspend fun createBackup(repository: BridgeRepository, context: Context): Boolean = withContext(Dispatchers.IO) {

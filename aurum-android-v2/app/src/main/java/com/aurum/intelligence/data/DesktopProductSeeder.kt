@@ -70,7 +70,23 @@ class DesktopProductSeeder(
                 DesktopProductSeedParser.parse(reader.readText())
             }
         }
-        val products = dedupeDesktopSeed(parsed)
+        val products = dedupeDesktopSeed(parsed).mapNotNull { product ->
+            val validation = Product24KValidator.validate(
+                name = product.name,
+                store = product.store,
+                karat = product.karat,
+                purity = product.purity,
+                price = product.price,
+                grams = product.grams,
+            )
+            if (validation.isValid) {
+                product.copy(
+                    name = validation.normalizedTitle,
+                    karat = validation.normalizedKarat,
+                    purity = validation.normalizedPurity,
+                )
+            } else null
+        }
         return database.withTransaction {
             var inserted = 0
             products.forEach { product ->
