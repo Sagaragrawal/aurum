@@ -1,4 +1,9 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -49,12 +54,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.aurum.intelligence.data.AppSettings
-import com.aurum.intelligence.data.ThemeChoice
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 
-private val refreshIntervals = listOf(15, 30, 60, 120, 240)
+private val refreshIntervals: List<Int>
+    get() = ScraperConfigProvider.get().appSettingsDefaults.allowedRefreshIntervals.ifEmpty { listOf(15, 30, 60, 120, 240) }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,7 +90,7 @@ fun SettingsScreen(
     ) { granted ->
         if (granted) {
             scope.launch {
-                val gpsPincode = com.aurum.intelligence.data.LocationHelper.detectGpsPincode(context)
+                val gpsPincode = com.aurum.intelligence.data.repository.LocationHelper.detectGpsPincode(context)
                 if (gpsPincode != null) {
                     pincode = gpsPincode
                     locationSaveMessage = "Detected pincode $gpsPincode via GPS"
@@ -160,9 +164,9 @@ fun SettingsScreen(
 
                         OutlinedButton(
                             onClick = {
-                                if (com.aurum.intelligence.data.LocationHelper.hasLocationPermission(context)) {
+                                if (com.aurum.intelligence.data.repository.LocationHelper.hasLocationPermission(context)) {
                                     scope.launch {
-                                        val gpsPincode = com.aurum.intelligence.data.LocationHelper.detectGpsPincode(context)
+                                        val gpsPincode = com.aurum.intelligence.data.repository.LocationHelper.detectGpsPincode(context)
                                         if (gpsPincode != null) {
                                             pincode = gpsPincode
                                             locationSaveMessage = "Detected pincode $gpsPincode via GPS"

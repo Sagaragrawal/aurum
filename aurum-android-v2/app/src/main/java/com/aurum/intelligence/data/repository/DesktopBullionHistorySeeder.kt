@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
@@ -18,14 +23,16 @@ class DesktopBullionHistorySeeder(
             check(mkdirs()) { "Unable to prepare bullion history seed" }
         }
         try {
-            FILES.forEach { name ->
+            val seedFileName = ScraperConfigProvider.get().storage.seedDbFileName.ifBlank { "aurum.sqlite" }
+            val filesToCopy = listOf(seedFileName, "$seedFileName-wal", "$seedFileName-shm")
+            filesToCopy.forEach { name ->
                 runCatching {
                     context.assets.open("seed/history/$name").use { source ->
                         File(directory, name).outputStream().use(source::copyTo)
                     }
                 }
             }
-            val seedDbFile = File(directory, "aurum.sqlite")
+            val seedDbFile = File(directory, seedFileName)
             if (!seedDbFile.exists()) return@withContext 0
             val source = SQLiteDatabase.openDatabase(
                 seedDbFile.path,
@@ -58,7 +65,9 @@ class DesktopBullionHistorySeeder(
                 val karat = cursor.getInt(1)
                 val price = cursor.getDouble(2)
                 val timestamp = runCatching { Instant.parse(cursor.getString(3)).toEpochMilli() }.getOrNull() ?: continue
-                if (sourceId !in SOURCES || karat !in setOf(22, 24) || !price.isFinite() || price <= 0) continue
+                val validSources = ScraperConfigProvider.get().bullion.sources.map { it.id }.toSet()
+                    .ifEmpty { setOf("tan", "malabar", "mmtc", "kalyan") }
+                if (sourceId !in validSources || karat !in setOf(22, 24) || !price.isFinite() || price <= 0) continue
                 grouped.getOrPut(sourceId to timestamp, ::mutableMapOf)[karat] = price
             }
         }
@@ -76,10 +85,5 @@ class DesktopBullionHistorySeeder(
                 fetchedAt = key.second,
             )
         }
-    }
-
-    private companion object {
-        val FILES = listOf("aurum.sqlite", "aurum.sqlite-wal", "aurum.sqlite-shm")
-        val SOURCES = setOf("tan", "malabar", "mmtc", "kalyan")
     }
 }

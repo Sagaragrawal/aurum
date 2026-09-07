@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -16,17 +21,17 @@ enum class ThemeChoice { System, Light, Dark }
 
 data class AppSettings(
     val theme: ThemeChoice = ThemeChoice.System,
-    val pincode: String = "560048",
+    val pincode: String = ScraperConfigProvider.get().location.defaultPincode,
     val preciseAddress: String = "",
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val refreshBullionOnStart: Boolean = false,
-    val refreshProductsOnStart: Boolean = false,
-    val dealMode: String = "Percent",
-    val dealPercentThreshold: Double = 2.0,
-    val dealRupeesThreshold: Double = 200.0,
-    val backgroundRefreshEnabled: Boolean = false,
-    val refreshIntervalMinutes: Int = 60,
+    val refreshBullionOnStart: Boolean = ScraperConfigProvider.get().appSettingsDefaults.refreshBullionOnStart,
+    val refreshProductsOnStart: Boolean = ScraperConfigProvider.get().appSettingsDefaults.refreshProductsOnStart,
+    val dealMode: String = ScraperConfigProvider.get().appSettingsDefaults.dealMode,
+    val dealPercentThreshold: Double = ScraperConfigProvider.get().appSettingsDefaults.dealPercentThreshold,
+    val dealRupeesThreshold: Double = ScraperConfigProvider.get().appSettingsDefaults.dealRupeesThreshold,
+    val backgroundRefreshEnabled: Boolean = ScraperConfigProvider.get().appSettingsDefaults.backgroundRefreshEnabled,
+    val refreshIntervalMinutes: Int = ScraperConfigProvider.get().appSettingsDefaults.refreshIntervalMinutes,
     val backgroundRefreshRequestedAt: Long? = null,
 )
 
@@ -38,21 +43,26 @@ class AppSettingsRepository(private val context: Context) {
             if (failure is IOException) emit(androidx.datastore.preferences.core.emptyPreferences()) else throw failure
         }
         .map { preferences ->
+            val config = ScraperConfigProvider.get()
+            val defaults = config.appSettingsDefaults
+            val allowedIntervals = defaults.allowedRefreshIntervals.ifEmpty { listOf(15, 30, 60, 120, 240) }
+            val minInterval = allowedIntervals.minOrNull() ?: 15
+            val maxInterval = allowedIntervals.maxOrNull() ?: 240
             AppSettings(
                 theme = preferences[themeKey]?.let { value ->
                     ThemeChoice.entries.firstOrNull { it.name == value }
-                } ?: ThemeChoice.System,
-                pincode = preferences[pincodeKey]?.takeIf { it.matches(Regex("\\d{6}")) } ?: "560048",
+                } ?: ThemeChoice.entries.firstOrNull { it.name.equals(defaults.theme, ignoreCase = true) } ?: ThemeChoice.System,
+                pincode = preferences[pincodeKey]?.takeIf { it.matches(Regex("\\d{6}")) } ?: config.location.defaultPincode,
                 preciseAddress = preferences[preciseAddressKey].orEmpty(),
                 latitude = preferences[latitudeKey]?.toDoubleOrNull(),
                 longitude = preferences[longitudeKey]?.toDoubleOrNull(),
-                refreshBullionOnStart = preferences[refreshBullionOnStartKey] ?: false,
-                refreshProductsOnStart = preferences[refreshProductsOnStartKey] ?: false,
-                dealMode = preferences[dealModeKey]?.takeIf { it in setOf("Percent", "RupeesPerGram") } ?: "Percent",
-                dealPercentThreshold = preferences[dealPercentThresholdKey]?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 2.0,
-                dealRupeesThreshold = preferences[dealRupeesThresholdKey]?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 200.0,
-                backgroundRefreshEnabled = preferences[backgroundRefreshKey] ?: false,
-                refreshIntervalMinutes = (preferences[refreshIntervalKey] ?: 60).coerceIn(15, 240),
+                refreshBullionOnStart = preferences[refreshBullionOnStartKey] ?: defaults.refreshBullionOnStart,
+                refreshProductsOnStart = preferences[refreshProductsOnStartKey] ?: defaults.refreshProductsOnStart,
+                dealMode = preferences[dealModeKey]?.takeIf { it in setOf("Percent", "RupeesPerGram") } ?: defaults.dealMode,
+                dealPercentThreshold = preferences[dealPercentThresholdKey]?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: defaults.dealPercentThreshold,
+                dealRupeesThreshold = preferences[dealRupeesThresholdKey]?.toDoubleOrNull()?.coerceAtLeast(0.0) ?: defaults.dealRupeesThreshold,
+                backgroundRefreshEnabled = preferences[backgroundRefreshKey] ?: defaults.backgroundRefreshEnabled,
+                refreshIntervalMinutes = (preferences[refreshIntervalKey] ?: defaults.refreshIntervalMinutes).coerceIn(minInterval, maxInterval),
                 backgroundRefreshRequestedAt = preferences[backgroundRefreshRequestedAtKey],
             )
         }

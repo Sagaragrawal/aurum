@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.validation
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import java.util.Locale
 import java.util.regex.Pattern
@@ -15,12 +20,17 @@ object Product24KValidator {
     )
 
     private val NON_GOLD_PATTERN = Pattern.compile(
-        "\\b(silver|chandi|platinum|brass|copper|alloy|iron|steel|wooden|wood|velvet|pouch|cloth|stone|detecting|testing|box|boxes|plate|capsule|stand|frame|holder|case|organizer|organiser|dogecoin|casino|soenir|souvenir|replica|plated)\\b",
+        "(?:silver|chandi|platinum|brass|copper|alloy|iron|steel|wooden|wood|cloth|stone|detecting|testing|dogecoin|casino|soenir|souvenir|replica|plated|imitation|base\\s*metal)",
+        Pattern.CASE_INSENSITIVE
+    )
+
+    private val PACKAGING_TERMS_PATTERN = Pattern.compile(
+        "\\b(velvet|pouch|box|boxes|plate|capsule|stand|frame|holder|case|organizer|organiser)\\b",
         Pattern.CASE_INSENSITIVE
     )
 
     private val JEWELRY_IDOL_PATTERN = Pattern.compile(
-        "\\b(ring|rings|necklace|necklaces|chain|chains|earring|earrings|bangle|bangles|pendant|pendants|bracelet|bracelets|mangalsutra|rakhi|rakhis|nose\\s*pin|kada|kadas|anklet|anklets|locket|lockets|brooch|idol|idols|murti|murtis|statue|statues|diya|diyas|pooja\\s*thali|tanmaniya|payal|jhumka|jhumki)\\b",
+        "(?:necklace|necklaces|chain|chains|earring|earrings|bangle|bangles|bracelet|bracelets|mangalsutra|rakhi|rakhis|nose\\s*pin|kada|kadas|anklet|anklets|locket|lockets|brooch|idol|idols|statue|statues|diya|diyas|pooja\\s*thali|tanmaniya|payal|jhumka|jhumki|tie\\s*clip|clip|stand|holder|organizer|kasulaperu)",
         Pattern.CASE_INSENSITIVE
     )
     private val GENERIC_JEWELRY_PATTERN = Pattern.compile(
@@ -39,7 +49,7 @@ object Product24KValidator {
     )
 
     private val NON_24K_INDICATOR = Pattern.compile(
-        "\\b(22\\s*(k|kt|karat|carat|ct)|18\\s*(k|kt|karat|carat|ct)|14\\s*(k|kt|karat|carat|ct)|916|750|585)\\b",
+        "(?:22\\s*k|22\\s*kt|22\\s*karat|22\\s*ct|22\\s*carat|22kt|22k|916|18\\s*k|18\\s*kt|18\\s*karat|18kt|18k|750|14\\s*k|14\\s*kt|14\\s*karat|14kt|14k|585|10\\s*k|10kt|10k)",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -75,54 +85,57 @@ object Product24KValidator {
         }
 
         // 3. Reject non-gold and accessories
-        if (NON_GOLD_PATTERN.matcher(trimmedName).find()) {
+        val titleForMetalCheck = trimmedName
+            .replace("Malabar Gold & Diamonds", "Malabar Gold", ignoreCase = true)
+            .replace("Malabar Gold and Diamonds", "Malabar Gold", ignoreCase = true)
+
+        if (NON_GOLD_PATTERN.matcher(titleForMetalCheck).find()) {
             return ValidationResult(isValid = false, rejectionReason = "Non-gold metal, accessory, or souvenir detected")
         }
 
-        // 4. Reject jewelry and idols
-        if (JEWELRY_IDOL_PATTERN.matcher(trimmedName).find()) {
-            return ValidationResult(isValid = false, rejectionReason = "Jewelry, ornament, or idol detected")
-        }
-        if (GENERIC_JEWELRY_PATTERN.matcher(trimmedName).find() && !COIN_BAR_PATTERN.matcher(trimmedName).find()) {
-            return ValidationResult(isValid = false, rejectionReason = "Generic jewelry without coin/bar indicator detected")
-        }
+        // Exclude false "bar" matches like tie bar, collar bar, jewelry stand, bar necklace, bar earring
+        val isNonBullionBar = Pattern.compile(
+            "(?:tie\\s*bar|collar\\s*bar|jewelry\\s*stand|display\\s*rack|crossbar|bar\\s*link|bar\\s*pendant|bar\\s*charm|bar\\s*necklace|bar\\s*earring)",
+            Pattern.CASE_INSENSITIVE
+        ).matcher(trimmedName).find()
 
-        // 5. Must be coin or bar or bullion
-        val hasCoinOrBarWord = COIN_BAR_PATTERN.matcher(trimmedName).find()
-        if (!hasCoinOrBarWord) {
-            val hasWeight = WEIGHT_PATTERN.matcher(trimmedName).find()
-            val has24K = IS_24K_INDICATOR.matcher(trimmedName).find()
-            if (!hasWeight || !has24K) {
-                return ValidationResult(isValid = false, rejectionReason = "Not a gold coin or bar")
+        // Check packaging terms: reject if packaging accessory or non-bullion bar
+        if (PACKAGING_TERMS_PATTERN.matcher(trimmedName).find() || isNonBullionBar) {
+            val has24KOrCoin = IS_24K_INDICATOR.matcher(trimmedName).find() || (COIN_BAR_PATTERN.matcher(trimmedName).find() && !isNonBullionBar)
+            if (!has24KOrCoin) {
+                return ValidationResult(isValid = false, rejectionReason = "Packaging accessory or non-bullion bar without 24K/coin/bar indicator")
             }
         }
 
-        // 6. Non-24K explicit rejection
+        // 4. Reject ornamental jewelry and idols, preserving only 24K pure gold coin pendants and Vedhani bullion loops
+        val nameLower = trimmedName.lowercase(Locale.ROOT)
+        val hasPendantWord = nameLower.contains("pendant") || nameLower.contains("pendants")
+        val hasRingWord = nameLower.contains("ring") || nameLower.contains("rings")
+        val isVedhaniWord = nameLower.contains("vedhani")
+
+        val is24KOrCoin = (IS_24K_INDICATOR.matcher(trimmedName).find() || COIN_BAR_PATTERN.matcher(trimmedName).find()) && !isNonBullionBar
+        val isCoinPendant = hasPendantWord && is24KOrCoin
+        val isVedhaniRing = (hasRingWord || isVedhaniWord) && (is24KOrCoin || isVedhaniWord)
+
+        if (JEWELRY_IDOL_PATTERN.matcher(trimmedName).find() && !isCoinPendant && !isVedhaniRing) {
+            return ValidationResult(isValid = false, rejectionReason = "Ornamental jewelry or idol detected")
+        }
+
+        // 5. Explicit non-24K rejection
         if (NON_24K_INDICATOR.matcher(trimmedName).find()) {
             return ValidationResult(isValid = false, rejectionReason = "Non-24K keyword (22K/18K/14K/916) in title")
         }
-        if (karat != null && karat < 24.0) {
+        if (karat != null && karat < 23.5) {
             return ValidationResult(isValid = false, rejectionReason = "Karat is $karat (< 24K)")
         }
 
-        // 7. Karat normalization
-        val normalizedK = when {
-            karat == 24.0 -> 24.0
-            IS_24K_INDICATOR.matcher(trimmedName).find() -> 24.0
-            else -> return ValidationResult(isValid = false, rejectionReason = "Karat is unknown/unverified")
-        }
-
-        // 8. Purity normalization & verification (must be >= 995)
+        // 6. Strict Purity & Karat verification (must be >= 995 fineness or 24K)
         val normalizedP = normalizePurity(purity, trimmedName)
-            ?: return ValidationResult(isValid = false, rejectionReason = "Purity is unknown/unverified (< 995)")
-
-        if (normalizedP != "995" && normalizedP != "999" && normalizedP != "999.9") {
-            return ValidationResult(isValid = false, rejectionReason = "Purity $normalizedP is below 995")
-        }
+            ?: return ValidationResult(isValid = false, rejectionReason = "Purity is below 24K / 995 fineness")
 
         return ValidationResult(
             isValid = true,
-            normalizedKarat = normalizedK,
+            normalizedKarat = 24.0,
             normalizedPurity = normalizedP,
             normalizedTitle = DatabaseSanitizerEngine.cleanTitle(trimmedName),
         )

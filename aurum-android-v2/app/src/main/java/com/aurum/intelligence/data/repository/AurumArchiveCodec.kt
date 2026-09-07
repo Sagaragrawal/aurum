@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -193,7 +198,9 @@ object AurumArchiveCodec {
     }
 
     private fun validateProduct(product: ArchiveProduct) {
-        require(product.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in")) {
+        val allowedStores = ScraperConfigProvider.get().stores.values.map { it.name }.toSet()
+            .ifEmpty { setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in") }
+        require(product.store in allowedStores) {
             "Unsupported product store: ${product.store}"
         }
         require(product.retailerId.isNotBlank()) { "Product retailer identity is missing" }
@@ -214,7 +221,7 @@ object AurumArchiveCodec {
     }
 
     private fun validateBullionSource(source: ArchiveBullionSource) {
-        require(source.id in BULLION_SOURCE_IDS) { "Unsupported bullion source: ${source.id}" }
+        require(source.id in bullionSourceIds) { "Unsupported bullion source: ${source.id}" }
         require(source.status in setOf("live", "stale", "checking", "unavailable")) { "Bullion source status is invalid" }
         require(source.transport in setOf("direct_http", "browser_required")) { "Bullion source transport is invalid" }
         require(source.url.startsWith("https://")) { "Bullion source URL must use HTTPS" }
@@ -235,11 +242,12 @@ object AurumArchiveCodec {
     }
 
     private fun validateBullionHistory(history: ArchiveBullionHistory) {
-        require(history.sourceId in BULLION_SOURCE_IDS) { "Unsupported bullion history source: ${history.sourceId}" }
+        require(history.sourceId in bullionSourceIds) { "Unsupported bullion history source: ${history.sourceId}" }
         require(history.fetchedAt >= 0) { "Bullion history timestamp is invalid" }
         require(BullionRatePolicy.isPlausible24(history.price24)) { "Bullion history 24K rate is invalid" }
         require(BullionRatePolicy.isPlausible22(history.price22, history.price24)) { "Bullion history 22K rate is invalid" }
     }
 
-    private val BULLION_SOURCE_IDS = setOf("tan", "malabar", "mmtc", "kalyan")
+    private val bullionSourceIds: Set<String>
+        get() = ScraperConfigProvider.get().bullion.sources.map { it.id }.toSet().ifEmpty { setOf("tan", "malabar", "mmtc", "kalyan") }
 }

@@ -1,8 +1,10 @@
 package com.aurum.intelligence.parsers
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
-import com.aurum.intelligence.data.BridgeRecord
-import com.aurum.intelligence.data.CandidateParseResult
-import com.aurum.intelligence.data.ProductCandidate
 import org.json.JSONObject
 
 object AjioNativeParser {
@@ -38,8 +40,8 @@ object AjioNativeParser {
             val rawUrl = item.optString("url")
             val derivedRetailerId = Regex("""/p/([^/?#]+)""", RegexOption.IGNORE_CASE).find(rawUrl)?.groupValues?.get(1)
                 ?: item.optJSONObject("fnlColorVariantData")?.optString("colorGroup")?.takeIf(String::isNotBlank)
-                ?: code
-            val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "https://www.ajio.com$rawUrl"
+            val baseUrl = ScraperConfigProvider.get().stores["ajio"]?.webBaseUrl ?: "https://www.ajio.com"
+            val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "$baseUrl$rawUrl"
 
             val brand = item.optJSONObject("fnlColorVariantData")?.optString("brandName")
                 ?.takeIf(String::isNotBlank) ?: item.optString("brandName").takeIf(String::isNotBlank)
@@ -73,5 +75,21 @@ object AjioNativeParser {
         }
 
         return ParseResult(candidates, totalResults, totalPages, currentPage)
+    }
+
+    fun parseStreamChunk(
+        accumulatedJson: String,
+        seenPids: MutableSet<String>,
+        bullionRate24: Double? = null,
+    ): List<ProductCandidate> {
+        val parsed = parse(accumulatedJson, bullionRate24)
+        if (parsed.candidates.isEmpty()) return emptyList()
+        val newCandidates = ArrayList<ProductCandidate>()
+        for (c in parsed.candidates) {
+            if (seenPids.add(c.retailerId)) {
+                newCandidates.add(c)
+            }
+        }
+        return newCandidates
     }
 }

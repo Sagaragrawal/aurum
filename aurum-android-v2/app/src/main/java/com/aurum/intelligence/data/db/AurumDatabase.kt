@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.db
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.Context
 import androidx.room.Dao
@@ -171,6 +176,15 @@ interface AurumDao {
     @Query("UPDATE products SET status = 'out_of_stock', checkedAt = :now WHERE id = :id")
     suspend fun markOutOfStock(id: String, now: Long)
 
+    @Query("UPDATE products SET status = 'stale' WHERE store = :store AND checkedAt < :startedAt AND status != 'unavailable'")
+    suspend fun markUnrefreshedStoreProductsStale(store: String, startedAt: Long): Int
+
+    @Query("UPDATE products SET status = 'stale' WHERE store = :store")
+    suspend fun markAllStoreProductsStale(store: String): Int
+
+    @Query("UPDATE products SET status = 'stale'")
+    suspend fun markAllProductsStale(): Int
+
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
     suspend fun productById(id: String): ProductEntity?
 
@@ -246,6 +260,9 @@ interface AurumDao {
 
     @Query("DELETE FROM refresh_activity_logs")
     suspend fun clearRefreshActivity()
+
+    @Query("DELETE FROM refresh_activity_logs WHERE store = :store")
+    suspend fun clearStoreRefreshActivity(store: String)
 }
 
 @Database(

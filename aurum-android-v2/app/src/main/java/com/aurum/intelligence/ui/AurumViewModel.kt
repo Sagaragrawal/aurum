@@ -1,27 +1,15 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.ContentResolver
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.aurum.intelligence.data.BridgeMergeEvent
-import com.aurum.intelligence.data.BridgeRepository
-import com.aurum.intelligence.data.BullionRefreshProgress
-import com.aurum.intelligence.data.BullionRepository
-import com.aurum.intelligence.data.BullionSourceEntity
-import com.aurum.intelligence.data.BullionRates
-import com.aurum.intelligence.data.BullionHistoryEntity
-import com.aurum.intelligence.data.AppSettings
-import com.aurum.intelligence.data.AppSettingsRepository
-import com.aurum.intelligence.data.ProductEntity
-import com.aurum.intelligence.data.MissingCatalogueProductResult
-import com.aurum.intelligence.data.ProductEdits
-import com.aurum.intelligence.data.RefreshActivityLogEntity
-import com.aurum.intelligence.data.RefreshActivityRepository
-import com.aurum.intelligence.data.RefreshLogSeverity
-import com.aurum.intelligence.data.ThemeChoice
-import com.aurum.intelligence.data.WatchlistRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,17 +151,17 @@ class AurumViewModel(
         store: String,
         acceptedIdentityKeys: Set<String>,
         targetProductIds: Set<String>,
-        fetcher: suspend (String) -> com.aurum.intelligence.data.ProductFetchResponse?,
+        fetcher: suspend (String) -> com.aurum.intelligence.data.engine.ProductFetchResponse?,
         onProgress: suspend (Int, Int, ProductEntity) -> Unit = { _, _, _ -> },
     ): MissingCatalogueProductResult = repository.refreshMissingCatalogueProducts(store, acceptedIdentityKeys, targetProductIds, fetcher, onProgress)
 
     suspend fun refreshProducts(
         store: String,
         productIds: Set<String>,
-        fetcher: suspend (String) -> com.aurum.intelligence.data.ProductFetchResponse?,
+        fetcher: suspend (String) -> com.aurum.intelligence.data.engine.ProductFetchResponse?,
     ): MissingCatalogueProductResult = repository.refreshProducts(store, productIds, fetcher)
 
-    suspend fun refreshProduct(productId: String, fetcher: suspend (String) -> com.aurum.intelligence.data.ProductFetchResponse?): com.aurum.intelligence.data.ProductLookup =
+    suspend fun refreshProduct(productId: String, fetcher: suspend (String) -> com.aurum.intelligence.data.engine.ProductFetchResponse?): com.aurum.intelligence.data.engine.ProductLookup =
         repository.refreshProduct(productId, fetcher)
 
     fun refreshBullion(sourceId: String? = null) = viewModelScope.launch {

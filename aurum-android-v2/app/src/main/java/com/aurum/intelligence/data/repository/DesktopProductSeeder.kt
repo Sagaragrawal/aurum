@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.res.AssetManager
 import androidx.room.withTransaction
@@ -65,7 +70,10 @@ class DesktopProductSeeder(
     private val assets: AssetManager,
 ) {
     suspend fun seedIfEmpty(): Int {
-        val parsed = PRODUCT_FILES.flatMap { file ->
+        val productFiles = ScraperConfigProvider.get().storage.productSeedFiles.ifEmpty {
+            listOf("ajio-com.json", "amazon-in.json", "flipkart-com.json", "myntra-com.json")
+        }
+        val parsed = productFiles.flatMap { file ->
             assets.open("seed/products/$file").bufferedReader().use { reader ->
                 DesktopProductSeedParser.parse(reader.readText())
             }
@@ -99,10 +107,6 @@ class DesktopProductSeeder(
             }
             inserted
         }
-    }
-
-    private companion object {
-        val PRODUCT_FILES = listOf("ajio-com.json", "amazon-in.json", "flipkart-com.json", "myntra-com.json")
     }
 }
 

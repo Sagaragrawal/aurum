@@ -1,19 +1,12 @@
 package com.aurum.intelligence
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.app.Application
 import com.aurum.intelligence.background.BackgroundRefreshScheduler
-import com.aurum.intelligence.data.AppSettingsRepository
-import com.aurum.intelligence.data.AurumDatabase
-import com.aurum.intelligence.data.BridgeRepository
-import com.aurum.intelligence.data.BullionRepository
-import com.aurum.intelligence.data.CronetNetworkClient
-import com.aurum.intelligence.data.DatabaseBackupManager
-import com.aurum.intelligence.data.LocationHelper
-import com.aurum.intelligence.data.WatchlistRepository
-import com.aurum.intelligence.data.createWatchlistRepository
-import com.aurum.intelligence.data.DesktopProductSeeder
-import com.aurum.intelligence.data.DesktopBullionHistorySeeder
-import com.aurum.intelligence.data.RefreshActivityRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,7 +20,7 @@ class AurumApplication : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     lateinit var database: AurumDatabase
         private set
-    lateinit var internalDatabase: com.aurum.intelligence.data.AurumInternalDatabase
+    lateinit var internalDatabase: com.aurum.intelligence.data.db.AurumInternalDatabase
         private set
     lateinit var repository: BridgeRepository
         private set
@@ -39,7 +32,7 @@ class AurumApplication : Application() {
         private set
     lateinit var refreshActivityRepository: RefreshActivityRepository
         private set
-    lateinit var nativeParallelRefreshEngine: com.aurum.intelligence.data.NativeParallelRefreshEngine
+    lateinit var nativeParallelRefreshEngine: com.aurum.intelligence.data.engine.NativeParallelRefreshEngine
         private set
     private val mutableStartupState = MutableStateFlow<StartupState>(StartupState.Starting)
     val startupState = mutableStartupState.asStateFlow()
@@ -63,19 +56,20 @@ class AurumApplication : Application() {
     private fun initialize() {
         mutableStartupState.value = StartupState.Starting
         runCatching {
-            com.aurum.intelligence.data.ScraperConfigProvider.init(this)
+            com.aurum.intelligence.data.engine.ScraperConfigProvider.init(this)
             CronetNetworkClient.initialize(this)
-            internalDatabase = com.aurum.intelligence.data.AurumInternalDatabase.create(this)
+            internalDatabase = com.aurum.intelligence.data.db.AurumInternalDatabase.create(this)
             database = AurumDatabase.create(this)
             repository = BridgeRepository(database)
             watchlistRepository = database.createWatchlistRepository()
             bullionRepository = BullionRepository(database)
             refreshActivityRepository = RefreshActivityRepository(internalDatabase)
             settingsRepository = AppSettingsRepository(this)
-            nativeParallelRefreshEngine = com.aurum.intelligence.data.NativeParallelRefreshEngine(
+            nativeParallelRefreshEngine = com.aurum.intelligence.data.engine.NativeParallelRefreshEngine(
                 database = database,
                 internalDatabase = internalDatabase,
                 activityRepository = refreshActivityRepository,
+                context = this,
             )
             applicationScope.launch {
                 runCatching {
@@ -83,7 +77,7 @@ class AurumApplication : Application() {
                     val restoredResult = DatabaseBackupManager.checkAndRestoreIfNeeded(database, repository, this@AurumApplication)
                     if (restoredResult != null) {
                         refreshActivityRepository.log(
-                            com.aurum.intelligence.data.RefreshLogSeverity.Info,
+                            com.aurum.intelligence.data.repository.RefreshLogSeverity.Info,
                             null,
                             "Restored ${restoredResult.productsAdded + restoredResult.productsMerged} products from persistent backup",
                         )
@@ -108,13 +102,13 @@ class AurumApplication : Application() {
                     val allProducts = database.dao().allProducts()
                     var cleanedCount = 0
                     allProducts.forEach { product ->
-                        val cleanName = com.aurum.intelligence.data.DatabaseSanitizerEngine.cleanTitle(product.name)
-                        val resolvedKarat = com.aurum.intelligence.data.DatabaseSanitizerEngine.resolveKarat(cleanName, product.karat)
-                        val resolvedPurity = com.aurum.intelligence.data.DatabaseSanitizerEngine.resolvePurity(cleanName, product.purity)
-                        val extractedWeight = com.aurum.intelligence.data.WeightExtractor.parse(cleanName)
+                        val cleanName = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.cleanTitle(product.name)
+                        val resolvedKarat = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.resolveKarat(cleanName, product.karat)
+                        val resolvedPurity = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.resolvePurity(cleanName, product.purity)
+                        val extractedWeight = com.aurum.intelligence.data.validation.WeightExtractor.parse(cleanName)
                         val unitGrams = extractedWeight.unitWeightGrams ?: product.unitWeightGrams ?: product.grams
                         val totalGrams = extractedWeight.totalWeightGrams ?: product.totalWeightGrams ?: product.grams
-                        val isMicro = com.aurum.intelligence.data.DatabaseSanitizerEngine.isMicroCoin(totalGrams)
+                        val isMicro = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.isMicroCoin(totalGrams)
 
                         if (cleanName != product.name || resolvedKarat != product.karat || resolvedPurity != product.purity || totalGrams != product.totalWeightGrams || isMicro != product.isMicroCoin) {
                             database.dao().upsertProduct(product.copy(
@@ -133,10 +127,10 @@ class AurumApplication : Application() {
                     }
 
                     // Enforce 100% 24K Gold Coin & Bar compliance on startup
-                    val purgedCount = com.aurum.intelligence.data.DatabaseSanitizerEngine.purgeNon24KGoldCoinsAndBars(database)
+                    val purgedCount = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.purgeNon24KGoldCoinsAndBars(database)
                     if (purgedCount > 0) {
                         refreshActivityRepository.log(
-                            com.aurum.intelligence.data.RefreshLogSeverity.Info,
+                            com.aurum.intelligence.data.repository.RefreshLogSeverity.Info,
                             null,
                             "DatabaseSanitizerEngine purged $purgedCount invalid non-24K/jewelry items from database",
                         )
@@ -145,6 +139,9 @@ class AurumApplication : Application() {
                     if (cleanedCount > 0 || purgedCount > 0) {
                         DatabaseBackupManager.createBackup(repository, this@AurumApplication)
                     }
+
+                    // Always sync databases to /storage/emulated/0/aurum/ on startup
+                    DatabaseBackupManager.syncDatabasesToExternal(this@AurumApplication, database, internalDatabase)
                 }.onFailure { failure ->
                     mutableStartupState.value = StartupState.Degraded(
                         "Aurum opened, but bundled data could not be loaded: ${failure.message ?: "seed error"}",
@@ -158,7 +155,7 @@ class AurumApplication : Application() {
                     .collect { (enabled, interval) ->
                         BackgroundRefreshScheduler.apply(
                             this@AurumApplication,
-                            com.aurum.intelligence.data.AppSettings(
+                            com.aurum.intelligence.data.repository.AppSettings(
                                 backgroundRefreshEnabled = enabled,
                                 refreshIntervalMinutes = interval,
                             ),

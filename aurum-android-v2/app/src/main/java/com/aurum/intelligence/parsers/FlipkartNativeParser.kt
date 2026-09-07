@@ -1,14 +1,17 @@
 package com.aurum.intelligence.parsers
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
-import com.aurum.intelligence.data.BridgeRecord
-import com.aurum.intelligence.data.CandidateParseResult
-import com.aurum.intelligence.data.ProductCandidate
 
 object FlipkartNativeParser {
 
     data class ParseResult(
         val candidates: List<ProductCandidate>,
         val totalResults: Int,
+        val hasMorePages: Boolean = true,
     )
 
     private val cardRegex = Regex("""<div[^>]*\bdata-id=["']([^"']+)["']([\s\S]*?)(?=<div[^>]*\bdata-id=|\z)""", RegexOption.IGNORE_CASE)
@@ -25,10 +28,14 @@ object FlipkartNativeParser {
 
     fun parse(html: String, store: String = "flipkart.com", bullionRate24: Double? = null): ParseResult {
         val totalMatch = reportedTotalRegex.find(html)
-        val totalResults = totalMatch?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
-        val reportedTotal = totalMatch?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
+        var totalResults = totalMatch?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
+        var hasMorePages = true
 
-        val host = if (store == "shopsy.in") "https://www.shopsy.in" else "https://www.flipkart.com"
+        val host = if (store == "shopsy.in") {
+            ScraperConfigProvider.get().stores["shopsy"]?.webBaseUrl ?: "https://www.shopsy.in"
+        } else {
+            ScraperConfigProvider.get().stores["flipkart"]?.webBaseUrl ?: "https://www.flipkart.com"
+        }
         val candidates = ArrayList<ProductCandidate>()
         val seenPids = HashSet<String>()
 
@@ -38,73 +45,86 @@ object FlipkartNativeParser {
             if (!jsonStr.isNullOrBlank()) {
                 runCatching {
                     val root = org.json.JSONObject(jsonStr)
-                    val slots = root.optJSONObject("props")
-                        ?.optJSONObject("pageProps")
-                        ?.optJSONObject("initialState")
-                        ?.optJSONObject("pageData")
-                        ?.optJSONObject("RESPONSE")
-                        ?.optJSONArray("slots")
+                    val pageProps = root.optJSONObject("props")?.optJSONObject("pageProps")
+                    val initialState = pageProps?.optJSONObject("initialState")
+                    val pageData = initialState?.optJSONObject("pageData") ?: root.optJSONObject("pageData")
+                    val responseObj = pageData?.optJSONObject("RESPONSE") ?: initialState?.optJSONObject("RESPONSE") ?: root.optJSONObject("RESPONSE")
+                    val innerPageData = responseObj?.optJSONObject("pageData")
+                    if (innerPageData != null && innerPageData.has("hasMorePages")) {
+                        hasMorePages = innerPageData.optBoolean("hasMorePages", true)
+                    }
+                    val slots = responseObj?.optJSONArray("slots") ?: pageData?.optJSONArray("slots")
 
                     if (slots != null) {
                         for (i in 0 until slots.length()) {
                             val slot = slots.optJSONObject(i) ?: continue
                             val widget = slot.optJSONObject("widget") ?: continue
                             val widgetData = widget.optJSONObject("data") ?: continue
-                            val products = widgetData.optJSONArray("products") ?: continue
 
-                            for (j in 0 until products.length()) {
-                                val prodWrapper = products.optJSONObject(j) ?: continue
-                                val valObj = prodWrapper.optJSONObject("productInfo")?.optJSONObject("value")
-                                    ?: prodWrapper.optJSONObject("value")
-                                    ?: continue
+                            val productArrays = mutableListOf<org.json.JSONArray>()
+                            widgetData.optJSONArray("products")?.let { productArrays.add(it) }
+                            widgetData.optJSONArray("renderableComponents")?.let { productArrays.add(it) }
+                            widgetData.optJSONArray("gridElements")?.let { productArrays.add(it) }
 
-                                val action = prodWrapper.optJSONObject("action")
-                                val actionParams = action?.optJSONObject("params")
-                                val pid = actionParams?.optString("productId")?.takeIf(String::isNotBlank)
-                                    ?: valObj.optString("id").takeIf(String::isNotBlank)
-                                    ?: continue
+                            for (productsArr in productArrays) {
+                                for (j in 0 until productsArr.length()) {
+                                    val prodWrapper = productsArr.optJSONObject(j) ?: continue
+                                    val valObj = prodWrapper.optJSONObject("productInfo")?.optJSONObject("value")
+                                        ?: prodWrapper.optJSONObject("value")
+                                        ?: prodWrapper.optJSONObject("element")?.optJSONObject("value")
+                                        ?: continue
 
-                                if (seenPids.contains(pid)) continue
-                                seenPids.add(pid)
+                                    val action = prodWrapper.optJSONObject("action")
+                                        ?: prodWrapper.optJSONObject("element")?.optJSONObject("action")
+                                    val actionParams = action?.optJSONObject("params")
+                                    val pid = actionParams?.optString("productId")?.takeIf(String::isNotBlank)
+                                        ?: valObj.optString("id").takeIf(String::isNotBlank)
+                                        ?: continue
 
-                                val titlesObj = valObj.optJSONObject("titles")
-                                val title = titlesObj?.optString("title")?.takeIf(String::isNotBlank)
-                                    ?: titlesObj?.optString("newTitle")?.takeIf(String::isNotBlank)
-                                    ?: continue
+                                    if (seenPids.contains(pid)) continue
+                                    seenPids.add(pid)
 
-                                val pricing = valObj.optJSONObject("pricing")
-                                val price = pricing?.optJSONObject("finalPrice")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
-                                    ?: pricing?.optDouble("displayPrice")?.takeIf { it.isFinite() && it > 0 }
-                                    ?: continue
+                                    val titlesObj = valObj.optJSONObject("titles")
+                                    val title = titlesObj?.optString("title")?.takeIf(String::isNotBlank)
+                                        ?: titlesObj?.optString("newTitle")?.takeIf(String::isNotBlank)
+                                        ?: valObj.optString("title").takeIf(String::isNotBlank)
+                                        ?: continue
 
-                                val mrp = pricing?.optJSONObject("mrp")?.optDouble("value")?.takeIf { it.isFinite() && it > price }
-                                val rawUrl = action?.optString("url")?.takeIf(String::isNotBlank)
-                                    ?: valObj.optString("baseUrl").takeIf(String::isNotBlank)
-                                    ?: "/dp/itm?pid=$pid"
-                                val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "$host$rawUrl"
-                                val cleanUrl = cleanProductUrl(fullUrl, pid, store)
+                                    val pricing = valObj.optJSONObject("pricing")
+                                    val price = pricing?.optJSONObject("finalPrice")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+                                        ?: pricing?.optDouble("displayPrice")?.takeIf { it.isFinite() && it > 0 }
+                                        ?: valObj.optJSONObject("price")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+                                        ?: continue
 
-                                val brand = titlesObj?.optString("superTitle")?.takeIf(String::isNotBlank)
-                                    ?: valObj.optString("productBrand").takeIf(String::isNotBlank)
-                                val unavailable = valObj.optBoolean("outOfStock", false)
-                                    || valObj.optBoolean("unserviceable", false)
-                                    || (valObj.has("isAvailable") && !valObj.optBoolean("isAvailable", true))
-                                    || (valObj.has("deliverable") && !valObj.optBoolean("deliverable", true))
+                                    val mrp = pricing?.optJSONObject("mrp")?.optDouble("value")?.takeIf { it.isFinite() && it > price }
+                                    val rawUrl = action?.optString("url")?.takeIf(String::isNotBlank)
+                                        ?: valObj.optString("baseUrl").takeIf(String::isNotBlank)
+                                        ?: "/dp/itm?pid=$pid"
+                                    val fullUrl = if (rawUrl.startsWith("http")) rawUrl else "$host$rawUrl"
+                                    val cleanUrl = cleanProductUrl(fullUrl, pid, store)
 
-                                val record = BridgeRecord(
-                                    retailerId = pid,
-                                    url = cleanUrl,
-                                    name = title,
-                                    brand = brand,
-                                    price = price,
-                                    couponPrice = null,
-                                    metal = "Gold",
-                                    unavailable = unavailable,
-                                )
+                                    val brand = titlesObj?.optString("superTitle")?.takeIf(String::isNotBlank)
+                                        ?: valObj.optString("productBrand").takeIf(String::isNotBlank)
+                                    val unavailable = valObj.optBoolean("outOfStock", false)
+                                        || valObj.optBoolean("unserviceable", false)
+                                        || (valObj.has("isAvailable") && !valObj.optBoolean("isAvailable", true))
+                                        || (valObj.has("deliverable") && !valObj.optBoolean("deliverable", true))
 
-                                when (val parsed = record.toProductCandidate(store, bullionRate24)) {
-                                    is CandidateParseResult.Valid -> candidates.add(parsed.candidate)
-                                    is CandidateParseResult.Rejected -> { /* Skip */ }
+                                    val record = BridgeRecord(
+                                        retailerId = pid,
+                                        url = cleanUrl,
+                                        name = title,
+                                        brand = brand,
+                                        price = price,
+                                        couponPrice = null,
+                                        metal = "Gold",
+                                        unavailable = unavailable,
+                                    )
+
+                                    when (val parsed = record.toProductCandidate(store, bullionRate24)) {
+                                        is CandidateParseResult.Valid -> candidates.add(parsed.candidate)
+                                        is CandidateParseResult.Rejected -> { /* Skip */ }
+                                    }
                                 }
                             }
                         }
@@ -175,7 +195,24 @@ object FlipkartNativeParser {
             }
         }
 
-        return ParseResult(candidates, if (totalResults > 0) totalResults else candidates.size)
+        return ParseResult(candidates, if (totalResults > 0) totalResults else candidates.size, hasMorePages)
+    }
+
+    fun parseStreamChunk(
+        accumulatedHtml: String,
+        seenPids: MutableSet<String>,
+        store: String = "flipkart.com",
+        bullionRate24: Double? = null,
+    ): List<ProductCandidate> {
+        val parsed = parse(accumulatedHtml, store, bullionRate24)
+        if (parsed.candidates.isEmpty()) return emptyList()
+        val newCandidates = ArrayList<ProductCandidate>()
+        for (c in parsed.candidates) {
+            if (seenPids.add(c.retailerId)) {
+                newCandidates.add(c)
+            }
+        }
+        return newCandidates
     }
 
     private fun cleanProductUrl(rawUrl: String, pid: String, store: String): String {

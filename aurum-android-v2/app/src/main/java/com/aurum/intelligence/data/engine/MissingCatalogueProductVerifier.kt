@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.engine
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import java.net.HttpURLConnection
 import kotlin.random.Random
@@ -53,7 +58,7 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
 
         val total = candidates.size
         val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
-        val semaphore = Semaphore(PARALLEL_CONCURRENCY)
+        val semaphore = Semaphore(ScraperConfigProvider.get().limits.verifierConcurrency)
 
         candidates.map { product ->
             async {
@@ -146,16 +151,17 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
     }
 
     private suspend fun fetchProduct(product: ProductEntity, fetcher: suspend (String) -> ProductFetchResponse?): ProductLookup =
-        withTimeoutOrNull(5000L) {
+        withTimeoutOrNull(ScraperConfigProvider.get().network.missingProductTimeoutMs.toLong()) {
             endpointFor(product)?.let { endpoint ->
                 fetcher(endpoint)?.let { ProductLookup.parse(product.store, it.status, it.body, endpoint) }
             }
         } ?: ProductLookup.Unknown
 
     private suspend fun fetchWithRetry(product: ProductEntity, fetcher: suspend (String) -> ProductFetchResponse?): ProductLookup {
+        val config = ScraperConfigProvider.get()
         var attempt = 0
         val maxAttempts = 2
-        var delayMs = 300L
+        var delayMs = config.delays.missingProductRetryDelayMs
 
         while (attempt < maxAttempts) {
             attempt++
@@ -165,7 +171,7 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
             if (attempt < maxAttempts) {
                 val jitter = Random.nextLong(50L, 200L)
                 delay(delayMs + jitter)
-                delayMs = (delayMs * 1.5).toLong().coerceAtMost(2000L)
+                delayMs = (delayMs * 1.5).toLong().coerceAtMost(config.delays.missingProductMaxRetryDelayMs)
             }
         }
         return ProductLookup.Unknown
@@ -220,14 +226,17 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
         }
     }
 
-    private fun endpointFor(product: ProductEntity): String? = when (product.store) {
-            "ajio.com" -> "https://www.ajio.com/api/p/${product.retailerId}"
-            "myntra.com", "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl
+    private fun endpointFor(product: ProductEntity): String? {
+        val config = ScraperConfigProvider.get()
+        return when (product.store) {
+            "ajio.com" -> {
+                val cleanId = product.retailerId.substringBefore('_')
+                val pattern = config.stores["ajio"]?.pdpUrlPattern?.takeIf { it.isNotBlank() } ?: "https://www.ajio.com/api/p/%s"
+                if (pattern.contains("{id}")) pattern.replace("{id}", cleanId) else String.format(pattern, cleanId)
+            }
+            "myntra.com", "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl.takeIf { it.isNotBlank() }
             else -> null
         }
-
-    private companion object {
-        const val PARALLEL_CONCURRENCY = 30
     }
 }
 
@@ -316,6 +325,24 @@ sealed interface ProductLookup {
                     body.contains("\"fnlColorVariantData\":null", ignoreCase = true)
                 ))
 
+            if (store == "myntra.com" && body.contains("window.__myx")) {
+                val myxResult = com.aurum.intelligence.parsers.MyntraNativeParser.parse(body)
+                val candidate = myxResult.candidates.firstOrNull()
+                if (candidate != null) {
+                    return Available(
+                        price = candidate.price,
+                        couponPrice = candidate.couponPrice,
+                        name = candidate.name,
+                        brand = candidate.brand,
+                        grams = candidate.grams,
+                        weightConfidence = candidate.weightConfidence,
+                        refreshMethod = "myntra.com-web-page",
+                        isBlinkDeal = candidate.isBlinkDeal,
+                        blinkDealPrice = candidate.blinkDealPrice
+                    )
+                }
+            }
+
             val price = when (store) {
                 "amazon.in" -> amazonPrice(body)
                 "flipkart.com", "shopsy.in" -> flipkartPrice(body)
@@ -354,7 +381,7 @@ sealed interface ProductLookup {
 
         private fun priceKeys(store: String): List<String> = when (store) {
             "ajio.com" -> listOf("promoDiscountedPrice", "offerPrice", "value", "mrp")
-            "myntra.com" -> listOf("discountedPrice", "discounted", "mrp")
+            "myntra.com" -> listOf("discountedPrice", "discounted", "price", "mrp")
             else -> emptyList()
         }
 

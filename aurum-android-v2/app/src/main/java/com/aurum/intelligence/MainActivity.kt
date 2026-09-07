@@ -1,4 +1,9 @@
 package com.aurum.intelligence
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,6 +29,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        checkAndRequestStoragePermissions()
         setContent {
             val aurum = application as AurumApplication
             val startup by aurum.startupState.collectAsState()
@@ -32,7 +38,7 @@ class MainActivity : ComponentActivity() {
                 is StartupState.Failed -> StartupFailure(state.message, aurum::retryInitialization)
                 StartupState.Ready, is StartupState.Degraded -> {
                     val settings by aurum.settingsRepository.settings.collectAsState(
-                        initial = com.aurum.intelligence.data.AppSettings(),
+                        initial = com.aurum.intelligence.data.repository.AppSettings(),
                     )
                     AurumTheme(themeChoice = settings.theme) {
                         AurumApp(
@@ -70,6 +76,24 @@ private fun StartupFailure(message: String, onRetry: () -> Unit) {
             Text(message, modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.error)
             Button(onClick = onRetry) { Text("Retry") }
             Text("Your stored data has not been deleted.", modifier = Modifier.padding(top = 12.dp))
+        }
+    }
+}
+
+private fun ComponentActivity.checkAndRequestStoragePermissions() {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        if (!android.os.Environment.isExternalStorageManager()) {
+            runCatching {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = android.net.Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }.onFailure {
+                runCatching {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                    startActivity(intent)
+                }
+            }
         }
     }
 }

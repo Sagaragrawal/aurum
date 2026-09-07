@@ -1,0 +1,392 @@
+{
+  "stores": {
+    "ajio": {
+      "name": "ajio.com",
+      "displayName": "AJIO",
+      "canonicalHost": "www.ajio.com",
+      "plpTargets": [
+        {
+          "name": "Category 83 (Master 24K Pure Gold Jewellery, Coins & Bars)",
+          "url": "https://www.ajio.com/api/category/83?pageSize=45&format=json&query=%3Arelevance%3Arelevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29&fields=SITE&facets=relevance%3Aundefined%3Averticalmetalpurity%3A24+Kt+%28995%29%3Averticalmetalpurity%3A24+Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24+Kt+%28999.9%29%3Averticalmetalpurity%3A24+Kt+%28999%29&gridColumns=3&platform=Android&store=ajio&curated=true&advfilter=true"
+        }
+      ],
+      "targets22k": [
+        {
+          "name": "Ajio 22K Gold Coins",
+          "url": "https://www.ajio.com/api/category/83?pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A22+Kt+%28916%29&fields=SITE&gridColumns=3&platform=Android&store=ajio"
+        }
+      ],
+      "pdpUrlPattern": "https://www.ajio.com/api/p/{id}",
+      "webBaseUrl": "https://www.ajio.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+        "x-requested-with": "browser",
+        "x-meta-app": "channel=web"
+      }
+    },
+    "flipkart": {
+      "name": "flipkart.com",
+      "displayName": "Flipkart",
+      "canonicalHost": "www.flipkart.com",
+      "plpTargets": [
+        {
+          "name": "Flipkart 24K Pure Gold Coins & Bars",
+          "url": "https://www.flipkart.com/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.material%255B%255D%3DGold&p%5B%5D=facets.material%255B%255D%3DYellow%2BGold&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528999%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528995%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528995%2529%2BKT",
+          "isMinutes": false
+        },
+        {
+          "name": "Flipkart Minutes Instant Gold",
+          "url": "https://www.flipkart.com/minutes/search?q=gold+coin",
+          "isMinutes": true
+        }
+      ],
+      "targets22k": [
+        {
+          "name": "Flipkart 22K Gold Coins",
+          "url": "https://www.flipkart.com/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.gold_purity%255B%255D%3D22%2B%2528916%2529%2BK"
+        }
+      ],
+      "webBaseUrl": "https://www.flipkart.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://www.flipkart.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin"
+      }
+    },
+    "shopsy": {
+      "name": "shopsy.in",
+      "displayName": "Shopsy",
+      "canonicalHost": "www.shopsy.in",
+      "plpTargets": [
+        {
+          "name": "Shopsy 24K Pure Gold Coins & Bars",
+          "url": "https://www.shopsy.in/gold-silver-coins/pr?sid=mcr,73x,ydh&marketplace=FLIPKART&otracker=product_breadCrumbs_Coins+&p[]=facets.gold_purity[]=24+(9999)+K&p[]=facets.gold_purity[]=24+(999)+K&p[]=facets.gold_purity[]=24+(995)+K&p[]=facets.gold_purity[]=24+(995)+KT&p[]=facets.material%5B%5D=Yellow+Gold&p%5B%5D=facets.material%255B%255D%3DGold"
+        }
+      ],
+      "webBaseUrl": "https://www.shopsy.in",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://www.shopsy.in/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin"
+      }
+    },
+    "amazon": {
+      "name": "amazon.in",
+      "displayName": "Amazon",
+      "canonicalHost": "www.amazon.in",
+      "plpTargets": [
+        {
+          "name": "Amazon Gold Coins & Bars",
+          "url": "https://www.amazon.in/s?rh=n%3A2908910031%2Cp_n_material_two_browse-bin%3A2160347031&dc&qid=1788706518&rnid=2160329031&ref=sr_nr_p_n_material_two_browse-bin_2"
+        }
+      ],
+      "pdpUrlPattern": "https://www.amazon.in/dp/{id}",
+      "webBaseUrl": "https://www.amazon.in",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+        "Referer": "https://www.amazon.in/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin"
+      }
+    },
+    "myntra": {
+      "name": "myntra.com",
+      "displayName": "Myntra",
+      "canonicalHost": "www.myntra.com",
+      "plpTargets": [
+        {
+          "name": "Myntra Gold Coins",
+          "url": "https://www.myntra.com/gold-coin",
+          "slug": "gold-coin",
+          "filterQuery": ""
+        }
+      ],
+      "targets22k": [
+        {
+          "name": "Myntra 22K Gold Coins",
+          "url": "https://www.myntra.com/gold-coin?f=Purity:22K",
+          "slug": "gold-coin",
+          "filterQuery": "f=Purity:22K"
+        }
+      ],
+      "gatewayBaseUrl": "https://www.myntra.com/gateway/v4/search/",
+      "pdpApiPattern": "https://www.myntra.com/gateway/v2/product/{id}",
+      "pdpWebPattern": "https://www.myntra.com/{id}",
+      "webBaseUrl": "https://www.myntra.com",
+      "gatewayHeaders": {
+        "Accept": "application/json",
+        "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+        "x-myntraweb": "Yes",
+        "x-requested-with": "browser",
+        "x-meta-app": "channel=web",
+        "Referer": "https://www.myntra.com/gold-coin",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "webHeaders": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7"
+      }
+    }
+  },
+  "bullion": {
+    "sources": [
+      {
+        "id": "tan",
+        "name": "Tanishq",
+        "description": "Tanishq gold rate",
+        "url": "https://www.tanishq.co.in/gold-rate.html",
+        "apiUrl": "",
+        "requestMethod": "GET",
+        "postBody": "",
+        "accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "transport": "browser_required",
+        "errorNote": "Browser rendering required"
+      },
+      {
+        "id": "malabar",
+        "name": "Malabar Gold & Diamonds",
+        "description": "Malabar Gold & Diamonds",
+        "url": "https://www.malabargoldanddiamonds.com/in/pan-india/en/live-gold-rate.html",
+        "apiUrl": "https://www.malabargoldanddiamonds.com/graphql-magento?query=",
+        "requestMethod": "GET",
+        "postBody": "",
+        "accept": "application/json",
+        "transport": "direct_http",
+        "errorNote": null,
+        "graphQlQuery": "query getMetalRate($filter: MetalRateFilterInput) { getMetalRate(filter: $filter) { items { entry_date entry_time purity unit rate country state } } }",
+        "graphQlVariables": "{\"filter\":{\"metal_type\":\"gold\",\"country\":\"India\"}}"
+      },
+      {
+        "id": "mmtc",
+        "name": "MMTC-PAMP",
+        "description": "MMTC-PAMP",
+        "url": "https://www.mmtcpamp.com/gold-silver-rate-today",
+        "apiUrl": "https://www.mmtcpamp.com/api/getQuote",
+        "requestMethod": "POST",
+        "postBody": "{\"currencyPair\":\"XAU/INR\",\"type\":\"BUY\"}",
+        "accept": "application/json",
+        "transport": "direct_http",
+        "errorNote": null
+      },
+      {
+        "id": "kalyan",
+        "name": "Kalyan Jewellers",
+        "description": "Kalyan Jewellers",
+        "url": "https://store.kalyanjewellers.net/gold-rate/india/en",
+        "apiUrl": "https://store.kalyanjewellers.net/gold-rate/india/en",
+        "requestMethod": "GET",
+        "postBody": "",
+        "accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "transport": "direct_http",
+        "errorNote": null
+      }
+    ],
+    "userAgent": "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36",
+    "connectTimeoutMs": 12000,
+    "readTimeoutMs": 12000,
+    "historyRetentionCount": 480
+  },
+  "delays": {
+    "ajioPageDelayMs": 1200,
+    "ajioRateLimitBackoffMs": 3000,
+    "flipkartPageDelayMs": 350,
+    "shopsyPageDelayMs": 200,
+    "amazonPageDelayMs": 400,
+    "myntraWebPageDelayMs": 400,
+    "myntraApiPageDelayMs": 250,
+    "pdpInterRequestDelayMs": 300,
+    "pdpAmazonDelayMs": 400,
+    "pdpRateLimitBackoffMs": 3000,
+    "missingProductRetryDelayMs": 300,
+    "missingProductMaxRetryDelayMs": 2000,
+    "uiUndoTimeoutMs": 4000,
+    "uiCopyFeedbackTimeoutMs": 1500
+  },
+  "limits": {
+    "maxPagesPerStore": 100,
+    "defaultPagesPerRefresh": 3,
+    "ajioPageSize": 45,
+    "myntraPageSize": 50,
+    "maxPdpItemsPerStore": 500,
+    "pdpConcurrency": 5,
+    "verifierConcurrency": 30,
+    "pdpMaxConsecutiveFailures": 5,
+    "dealMaxResults": 6
+  },
+  "network": {
+    "connectTimeoutMs": 15000,
+    "readTimeoutMs": 20000,
+    "cronetFallbackTimeoutMs": 5000,
+    "missingProductTimeoutMs": 5000,
+    "maxConsecutive403sBeforeSkip": 2,
+    "retryBackoffMs": 3000,
+    "bufferSize": 32768,
+    "defaultUserAgent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+    "desktopUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "cronetRequestHeaders": {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache",
+      "DNT": "1",
+      "Upgrade-Insecure-Requests": "1",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "none",
+      "Sec-Fetch-User": "?1"
+    },
+    "cronetApiRequestHeaders": {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin"
+    },
+    "desktopHeaders": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7"
+    },
+    "ajioPdpHeaders": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "application/json, text/plain, */*",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+      "Referer": "https://www.ajio.com/",
+      "Sec-Fetch-Dest": "empty",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Site": "same-origin"
+    }
+  },
+  "location": {
+    "defaultPincode": "560048",
+    "defaultLatitude": 12.9716,
+    "defaultLongitude": 77.5946
+  },
+  "storage": {
+    "externalDirPath": "/storage/emulated/0/aurum",
+    "backupDbFileName": "aurum.db",
+    "internalDbFileName": "aurum_internal.db",
+    "rawPagesDirName": "raw_pages",
+    "seedDbFileName": "aurum.sqlite",
+    "productSeedFiles": [
+      "ajio-com.json",
+      "amazon-in.json",
+      "flipkart-com.json",
+      "myntra-com.json"
+    ]
+  },
+  "notifications": {
+    "channelDealsId": "aurum_deals_channel",
+    "channelDealsName": "Deal Alerts & Blink Deals",
+    "channelRefreshId": "aurum_background_refresh",
+    "channelRefreshName": "Background Refresh",
+    "backgroundWorkName": "aurum-background-refresh",
+    "notificationRefreshId": 4101,
+    "deduplicationWindowMs": 21600000
+  },
+  "circuitBreaker": {
+    "failureThreshold": 3,
+    "cooldownDurationMs": 900000,
+    "antiBotMarkers": [
+      "access denied",
+      "request blocked",
+      "security check",
+      "captcha",
+      "cloudflare",
+      "akamai",
+      "perimeterx",
+      "bot challenge",
+      "http 403",
+      "http 429",
+      "too many requests",
+      "blocked due to security"
+    ]
+  },
+  "policy": {
+    "minPlausibleGoldPricePerGram": 3000.0,
+    "maxPlausibleGoldPricePerGram": 35000.0,
+    "minPlausibleBullionRate24": 3000.0,
+    "maxPlausibleBullionRate24": 50000.0,
+    "minBullion22Ratio": 0.72,
+    "maxBullion22Ratio": 1.02,
+    "bullionMedianTolerance": 0.06,
+    "staleThresholdMillis": 86400000,
+    "liveFreshnessMillis": 86400000,
+    "minPlausibleDealRatio": 0.55,
+    "microCoinMaxGrams": 0.25,
+    "vendorWeightCorrectionMinGrams": 50.0,
+    "vendorWeightCorrectionMaxPrice": 100000.0,
+    "vendorWeightCorrectionThreshold": 3000.0,
+    "unserviceableTerms": [
+      "not deliverable",
+      "currently unavailable",
+      "out of stock",
+      "pincode not serviceable",
+      "cannot be delivered",
+      "unserviceable",
+      "isAvailable\":false",
+      "purchasable\":false",
+      "stockLevelStatus\":\"outOfStock\""
+    ]
+  },
+  "appSettingsDefaults": {
+    "theme": "System",
+    "refreshBullionOnStart": false,
+    "refreshProductsOnStart": false,
+    "dealMode": "Percent",
+    "dealPercentThreshold": 2.0,
+    "dealRupeesThreshold": 200.0,
+    "backgroundRefreshEnabled": false,
+    "refreshIntervalMinutes": 60,
+    "allowedRefreshIntervals": [15, 30, 60, 120, 240]
+  },
+  "ajioBenchmarkTargets": [
+    {
+      "name": "AJIO Category 8303 (Gold / Jewellery)",
+      "url": "https://www.ajio.com/api/category/8303?fields=SITE&currentPage=0&pageSize=45&format=json&query=%3Arelevance%3Averticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&facets=verticalmetalpurity%3A24%20Kt%20%28995%29%3Averticalmetalpurity%3A24%20Kt%3Averticalmetalpurity%3A999%3Averticalmetalpurity%3A24%20Kt%20%28999.9%29%3Averticalmetalpurity%3A24%20Kt%20%28999%29%3Averticalmetalpurity%3A22%20Kt&gridColumns=3&platform=Android&store=ajio"
+    },
+    {
+      "name": "AJIO Search ('gold coin')",
+      "url": "https://www.ajio.com/api/search?fields=SITE&currentPage=0&pageSize=45&format=json&query=gold%20coin%3Arelevance&text=gold%20coin&gridColumns=3&platform=Android&store=ajio"
+    },
+    {
+      "name": "AJIO Search ('gold bar')",
+      "url": "https://www.ajio.com/api/search?fields=SITE&currentPage=0&pageSize=45&format=json&query=gold%20bar%3Arelevance&text=gold%20bar&gridColumns=3&platform=Android&store=ajio"
+    },
+    {
+      "name": "AJIO Search ('24 kt gold coin')",
+      "url": "https://www.ajio.com/api/search?fields=SITE&currentPage=0&pageSize=45&format=json&query=24%20kt%20gold%20coin%3Arelevance&text=24%20kt%20gold%20coin&gridColumns=3&platform=Android&store=ajio"
+    },
+    {
+      "name": "AJIO Search ('22 kt gold coin')",
+      "url": "https://www.ajio.com/api/search?fields=SITE&currentPage=0&pageSize=45&format=json&query=22%20kt%20gold%20coin%3Arelevance&text=22%20kt%20gold%20coin&gridColumns=3&platform=Android&store=ajio"
+    }
+  ],
+  "debug": {
+    "saveRawPages": {
+      "ajio.com": true,
+      "amazon.in": true,
+      "flipkart.com": true,
+      "myntra.com": true,
+      "shopsy.in": true
+    }
+  }
+}

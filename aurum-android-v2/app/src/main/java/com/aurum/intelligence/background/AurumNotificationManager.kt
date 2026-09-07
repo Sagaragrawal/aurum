@@ -1,4 +1,9 @@
 package com.aurum.intelligence.background
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -15,17 +20,17 @@ import com.aurum.intelligence.MainActivity
 import java.util.concurrent.ConcurrentHashMap
 
 object AurumNotificationManager {
-    private const val CHANNEL_DEALS_ID = "aurum_deals_channel"
-    private const val CHANNEL_DEALS_NAME = "Deal Alerts & Blink Deals"
-    private const val CHANNEL_REFRESH_ID = "aurum_background_refresh"
-    private const val CHANNEL_REFRESH_NAME = "Background Refresh"
+    private val channelDealsId: String get() = ScraperConfigProvider.get().notifications.channelDealsId
+    private val channelDealsName: String get() = ScraperConfigProvider.get().notifications.channelDealsName
+    private val channelRefreshId: String get() = ScraperConfigProvider.get().notifications.channelRefreshId
+    private val channelRefreshName: String get() = ScraperConfigProvider.get().notifications.channelRefreshName
+    private val deduplicationWindowMs: Long get() = ScraperConfigProvider.get().notifications.deduplicationWindowMs
 
     private val notifiedDealsCache = ConcurrentHashMap<String, Long>()
-    private const val DEDUPLICATION_WINDOW_MS = 6 * 60 * 60 * 1000L // 6 hours
 
     fun shouldNotifyDeal(dealKey: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
         val lastNotified = notifiedDealsCache[dealKey]
-        if (lastNotified != null && (nowMillis - lastNotified) < DEDUPLICATION_WINDOW_MS) {
+        if (lastNotified != null && (nowMillis - lastNotified) < deduplicationWindowMs) {
             return false
         }
         notifiedDealsCache[dealKey] = nowMillis
@@ -54,7 +59,7 @@ object AurumNotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_DEALS_ID)
+        val notification = NotificationCompat.Builder(context, channelDealsId)
             .setSmallIcon(android.R.drawable.stat_sys_warning)
             .setContentTitle(title)
             .setContentText(message)
@@ -95,16 +100,16 @@ object AurumNotificationManager {
     private fun ensureChannelsCreated(context: Context) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val dealsChannel = NotificationChannel(
-            CHANNEL_DEALS_ID,
-            CHANNEL_DEALS_NAME,
+            channelDealsId,
+            channelDealsName,
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "Alerts for Blink Deals and products below bullion rates"
             enableVibration(true)
         }
         val refreshChannel = NotificationChannel(
-            CHANNEL_REFRESH_ID,
-            CHANNEL_REFRESH_NAME,
+            channelRefreshId,
+            channelRefreshName,
             NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
             description = "Prompts when Aurum needs an in-app browser collection"

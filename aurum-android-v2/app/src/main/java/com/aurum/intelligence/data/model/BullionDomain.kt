@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.model
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -12,11 +17,15 @@ import kotlin.math.abs
 data class BullionRates(val price24: Double?, val price22: Double?)
 
 object BullionRatePolicy {
-    fun isPlausible24(value: Double?): Boolean = value?.isFinite() == true && value in 3_000.0..50_000.0
+    fun isPlausible24(value: Double?): Boolean {
+        val policy = ScraperConfigProvider.get().policy
+        return value?.isFinite() == true && value in policy.minPlausibleBullionRate24..policy.maxPlausibleBullionRate24
+    }
 
     fun isPlausible22(value: Double?, price24: Double?): Boolean {
         val rate24 = price24 ?: return false
-        return value?.isFinite() == true && isPlausible24(rate24) && value in (rate24 * 0.72)..(rate24 * 1.02)
+        val policy = ScraperConfigProvider.get().policy
+        return value?.isFinite() == true && isPlausible24(rate24) && value in (rate24 * policy.minBullion22Ratio)..(rate24 * policy.maxBullion22Ratio)
     }
 }
 
@@ -27,7 +36,8 @@ object BullionBenchmark {
         val sorted = rates.sorted()
         val middle = sorted.size / 2
         val median = if (sorted.size % 2 == 1) sorted[middle] else (sorted[middle - 1] + sorted[middle]) / 2
-        val filtered = rates.filter { abs(it - median) <= median * 0.06 }
+        val policy = ScraperConfigProvider.get().policy
+        val filtered = rates.filter { abs(it - median) <= median * policy.bullionMedianTolerance }
         return if (filtered.size >= 2) filtered else rates
     }
 

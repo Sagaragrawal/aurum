@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.db
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.Context
 import androidx.room.Dao
@@ -42,6 +47,9 @@ interface AurumInternalDao {
 
     @Query("DELETE FROM refresh_activity_logs")
     suspend fun clearRefreshActivity()
+
+    @Query("DELETE FROM refresh_activity_logs WHERE store = :store")
+    suspend fun clearStoreRefreshActivity(store: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRawPayload(payload: RawBridgePayloadEntity)

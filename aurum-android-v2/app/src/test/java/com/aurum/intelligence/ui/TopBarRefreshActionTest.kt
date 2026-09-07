@@ -1,4 +1,9 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

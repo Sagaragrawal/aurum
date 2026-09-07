@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.engine
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.util.Log
 import com.aurum.intelligence.parsers.AjioNativeParser
@@ -50,34 +55,75 @@ class NativeParallelRefreshEngine(
     private val database: AurumDatabase,
     private val internalDatabase: AurumInternalDatabase? = null,
     private val activityRepository: RefreshActivityRepository? = null,
+    private val context: android.content.Context? = null,
 ) {
 
     private val tag = "ParallelRefreshEngine"
 
     suspend fun refreshAllParallel(
-        pincode: String = "560048",
+        pincode: String = ScraperConfigProvider.get().location.defaultPincode,
         latitude: Double? = null,
         longitude: Double? = null,
-        maxPagesPerStore: Int = 3,
+        maxPagesPerStore: Int = ScraperConfigProvider.get().limits.defaultPagesPerRefresh,
+        targetStores: Set<String>? = null,
         onProgress: (StoreRefreshProgress) -> Unit = {},
     ): FullRefreshSummary = withContext(Dispatchers.IO) {
         val overallStart = System.currentTimeMillis()
-        activityRepository?.log(RefreshLogSeverity.Info, null, "Starting 100% native parallel refresh for all stores and bullion")
+        val activeStores = targetStores?.takeIf { it.isNotEmpty() }
+        val targetLabel = activeStores?.joinToString(", ") ?: "all stores"
+
+        // 0. Automatic Log and Raw Page Cleanup
+        runCatching {
+            if (activeStores == null) {
+                database.dao().clearRefreshActivity()
+                internalDatabase?.dao()?.clearRefreshActivity()
+                DatabaseBackupManager.clearAllRawPages()
+            } else {
+                for (st in activeStores) {
+                    database.dao().clearStoreRefreshActivity(st)
+                    internalDatabase?.dao()?.clearStoreRefreshActivity(st)
+                    DatabaseBackupManager.clearStoreRawPages(st)
+                }
+            }
+        }
+
+        activityRepository?.log(RefreshLogSeverity.Info, null, "Starting native parallel refresh for $targetLabel and bullion")
 
         // 1. Get latest benchmark bullion rate for price plausibility evaluation
         val initialBullion = database.dao().latestBullionHistory()
         val initialBenchmarkRate = initialBullion?.price24
 
-        // 2. Dispatch all 5 stores and bullion in parallel
+        // 2. Dispatch selected stores and bullion in parallel
         val (storeResults, bullionRates) = coroutineScope {
-            val ajioDeferred = async { refreshAjio(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
-            val flipkartDeferred = async { refreshFlipkart(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
-            val shopsyDeferred = async { refreshShopsy(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
-            val amazonDeferred = async { refreshAmazon(initialBenchmarkRate, maxPagesPerStore, onProgress) }
-            val myntraDeferred = async { refreshMyntra(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            val ajioDeferred = if (activeStores == null || "ajio.com" in activeStores) {
+                async { refreshAjio(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            } else null
+
+            val flipkartDeferred = if (activeStores == null || "flipkart.com" in activeStores) {
+                async { refreshFlipkart(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            } else null
+
+            val shopsyDeferred = if (activeStores == null || "shopsy.in" in activeStores) {
+                async { refreshShopsy(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            } else null
+
+            val amazonDeferred = if (activeStores == null || "amazon.in" in activeStores) {
+                async { refreshAmazon(initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            } else null
+
+            val myntraDeferred = if (activeStores == null || "myntra.com" in activeStores) {
+                async { refreshMyntra(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
+            } else null
+
             val bullionDeferred = async { refreshBullion() }
 
-            val stores = awaitAll(ajioDeferred, flipkartDeferred, shopsyDeferred, amazonDeferred, myntraDeferred)
+            val stores = listOfNotNull(
+                ajioDeferred?.await(),
+                flipkartDeferred?.await(),
+                shopsyDeferred?.await(),
+                amazonDeferred?.await(),
+                myntraDeferred?.await(),
+            )
             val bullion = bullionDeferred.await()
             stores to bullion
         }
@@ -91,6 +137,11 @@ class NativeParallelRefreshEngine(
             null,
             "Completed parallel refresh: $totalValid valid gold items found in ${totalDuration}ms across all stores",
         )
+
+        // Sync databases to /storage/emulated/0/aurum immediately upon refresh completion
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
 
         FullRefreshSummary(
             storeResults = storeResults,
@@ -111,6 +162,7 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
+        runCatching { database.dao().markAllStoreProductsStale("ajio.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
@@ -166,6 +218,7 @@ class NativeParallelRefreshEngine(
                         "[AJIO] DISCOVERING page=0 HTTP status=200 discovered=$p0Discovered accepted=$p0Saved totalAvailable=${parsed0.totalResults}"
                     )
 
+                    DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_0", resp0.body, "json")
                     recordRawPayload(
                         id = UUID.randomUUID().toString(),
                         store = "ajio_master_${target.name.replace(" ", "_")}_page_0",
@@ -186,20 +239,19 @@ class NativeParallelRefreshEngine(
                             plpRequests++
                             var pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
                             if (pResp.status == 403 || pResp.status == 429) {
+                                CronetNetworkClient.resetSession()
                                 delay(config.delays.ajioRateLimitBackoffMs)
                                 plpRequests++
                                 pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
                             }
                             if (pResp.status == 403) {
-                                activityRepository?.log(
-                                    RefreshLogSeverity.Warning,
-                                    "ajio.com",
-                                    "[AJIO] HTTP status=403 on page=$page for ${target.name} (reached rate limit/depth ceiling). Preserving all $valid accepted products."
-                                )
-                                break
+                                CronetNetworkClient.resetSession()
+                                delay(config.delays.ajioRateLimitBackoffMs)
+                                pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
                             }
 
                             if (pResp.status in 200..299) {
+                                DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_$page", pResp.body, "json")
                                 recordRawPayload(
                                     id = UUID.randomUUID().toString(),
                                     store = "ajio_master_${target.name.replace(" ", "_")}_page_$page",
@@ -315,6 +367,9 @@ class NativeParallelRefreshEngine(
                 "[AJIO] Existing prices preserved: catalogue scan complete (${duration}ms)",
             )
         }
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
         return result
     }
 
@@ -328,6 +383,7 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
+        runCatching { database.dao().markAllStoreProductsStale("flipkart.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
@@ -337,11 +393,7 @@ class NativeParallelRefreshEngine(
         val config = ScraperConfigProvider.get()
         val flipkartTargets = config.flipkartTargets
 
-        val desktopHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
-        )
+        val flipkartHeaders = config.stores["flipkart"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
 
         for (target in flipkartTargets) {
             val urlStart = System.currentTimeMillis()
@@ -356,28 +408,52 @@ class NativeParallelRefreshEngine(
                     "[Flipkart] Fetching ${target.name} (page 1)..."
                 )
                 plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetWithHeaders(targetUrl, desktopHeaders)
+                val resp1 = CronetNetworkClient.executeCronetWithHeaders(targetUrl, flipkartHeaders)
                 if (resp1.status in 200..299) {
+                    DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_1", resp1.body, "html")
+                    recordRawPayload(
+                        id = UUID.randomUUID().toString(),
+                        store = "flipkart_master_${target.name.replace(" ", "_")}_page_1",
+                        json = resp1.body,
+                    )
                     val parsed1 = FlipkartNativeParser.parse(resp1.body, "flipkart.com", bullionRate24)
                     var targetDiscovered = parsed1.candidates.size
                     var targetValid = saveCandidates("flipkart.com", parsed1.candidates, pincode, distinctPids)
                     discovered += targetDiscovered
                     valid += targetValid
 
-                    val pageCap = if (target.isMinutes) 1 else config.limits.maxPagesPerStore
-                    if (pageCap > 1 && parsed1.candidates.isNotEmpty()) {
+                    val pageCap = if (target.isMinutes) 1 else minOf(30, config.limits.maxPagesPerStore)
+                    if (pageCap > 1) {
+                        var consecutiveEmptyPages = 0
                         for (page in 2..pageCap) {
                             delay(config.delays.flipkartPageDelayMs)
                             val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
                             plpRequests++
-                            val resp = CronetNetworkClient.executeCronetWithHeaders("${targetUrl}$pageParam", desktopHeaders)
+                            activityRepository?.log(
+                                RefreshLogSeverity.Info,
+                                "flipkart.com",
+                                "[Flipkart] Fetching ${target.name} (page $page of $pageCap)..."
+                            )
+                            val resp = CronetNetworkClient.executeCronetWithHeaders("${targetUrl}$pageParam", flipkartHeaders)
                             if (resp.status in 200..299) {
+                                DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_$page", resp.body, "html")
+                                recordRawPayload(
+                                    id = UUID.randomUUID().toString(),
+                                    store = "flipkart_master_${target.name.replace(" ", "_")}_page_$page",
+                                    json = resp.body,
+                                )
                                 val p = FlipkartNativeParser.parse(resp.body, "flipkart.com", bullionRate24)
-                                if (p.candidates.isEmpty()) break
-                                val s = saveCandidates("flipkart.com", p.candidates, pincode, distinctPids)
-                                discovered += p.candidates.size
+                                if (p.candidates.isEmpty()) {
+                                    consecutiveEmptyPages++
+                                    if (consecutiveEmptyPages >= 3) break
+                                } else {
+                                    consecutiveEmptyPages = 0
+                                }
+                                val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
+                                val s = saveCandidates("flipkart.com", newCandidates, pincode, distinctPids)
+                                discovered += newCandidates.size
                                 valid += s
-                                targetDiscovered += p.candidates.size
+                                targetDiscovered += newCandidates.size
                                 targetValid += s
                             } else {
                                 break
@@ -457,6 +533,9 @@ class NativeParallelRefreshEngine(
                 "Existing prices preserved: catalogue scan complete (${duration}ms)",
             )
         }
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
         return result
     }
 
@@ -470,6 +549,7 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
+        runCatching { database.dao().markAllStoreProductsStale("shopsy.in") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
@@ -478,6 +558,8 @@ class NativeParallelRefreshEngine(
 
         val config = ScraperConfigProvider.get()
         val shopsyTargets = config.shopsyTargets
+
+        val shopsyHeaders = config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
 
         for (target in shopsyTargets) {
             val urlStart = System.currentTimeMillis()
@@ -492,23 +574,47 @@ class NativeParallelRefreshEngine(
                     "[Shopsy] Fetching ${target.name} (page 1)..."
                 )
                 plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetRequest(targetUrl, pincode)
+                val resp1 = CronetNetworkClient.executeCronetWithHeaders(targetUrl, shopsyHeaders)
                 if (resp1.status in 200..299) {
+                    DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_1", resp1.body, "html")
+                    recordRawPayload(
+                        id = UUID.randomUUID().toString(),
+                        store = "shopsy_master_${target.name.replace(" ", "_")}_page_1",
+                        json = resp1.body,
+                    )
                     val parsed1 = FlipkartNativeParser.parse(resp1.body, "shopsy.in", bullionRate24)
                     var targetDiscovered = parsed1.candidates.size
                     var targetValid = saveCandidates("shopsy.in", parsed1.candidates, pincode, distinctPids)
                     discovered += targetDiscovered
                     valid += targetValid
 
-                    if (parsed1.candidates.isNotEmpty()) {
-                        for (page in 2..config.limits.maxPagesPerStore) {
+                    val pageCap = minOf(30, config.limits.maxPagesPerStore)
+                    if (pageCap > 1) {
+                        var consecutiveEmptyPages = 0
+                        for (page in 2..pageCap) {
                             delay(config.delays.shopsyPageDelayMs)
                             val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
                             plpRequests++
-                            val resp = CronetNetworkClient.executeCronetRequest("${targetUrl}$pageParam", pincode)
+                            activityRepository?.log(
+                                RefreshLogSeverity.Info,
+                                "shopsy.in",
+                                "[Shopsy] Fetching ${target.name} (page $page of $pageCap)..."
+                            )
+                            val resp = CronetNetworkClient.executeCronetWithHeaders("${targetUrl}$pageParam", shopsyHeaders)
                             if (resp.status in 200..299) {
+                                DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_$page", resp.body, "html")
+                                recordRawPayload(
+                                    id = UUID.randomUUID().toString(),
+                                    store = "shopsy_master_${target.name.replace(" ", "_")}_page_$page",
+                                    json = resp.body,
+                                )
                                 val p = FlipkartNativeParser.parse(resp.body, "shopsy.in", bullionRate24)
-                                if (p.candidates.isEmpty()) break
+                                if (p.candidates.isEmpty()) {
+                                    consecutiveEmptyPages++
+                                    if (consecutiveEmptyPages >= 3) break
+                                } else {
+                                    consecutiveEmptyPages = 0
+                                }
                                 val s = saveCandidates("shopsy.in", p.candidates, pincode, distinctPids)
                                 discovered += p.candidates.size
                                 valid += s
@@ -592,6 +698,9 @@ class NativeParallelRefreshEngine(
                 "Existing prices preserved: catalogue scan complete (${duration}ms)",
             )
         }
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
         return result
     }
 
@@ -604,6 +713,7 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
+        runCatching { database.dao().markAllStoreProductsStale("amazon.in") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
@@ -612,6 +722,8 @@ class NativeParallelRefreshEngine(
 
         val config = ScraperConfigProvider.get()
         val amazonTargets = config.amazonTargets
+
+        val amazonHeaders = config.stores["amazon"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
 
         for (target in amazonTargets) {
             val urlStart = System.currentTimeMillis()
@@ -623,26 +735,55 @@ class NativeParallelRefreshEngine(
                 )
                 val page1Url = if (target.url.contains("ref=")) target.url else "${target.url}&ref=sr_pg_1"
                 plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetRequest(page1Url)
+                val resp1 = CronetNetworkClient.executeCronetWithHeaders(page1Url, amazonHeaders)
                 if (resp1.status in 200..299) {
+                    DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_1", resp1.body, "html")
+                    recordRawPayload(
+                        id = UUID.randomUUID().toString(),
+                        store = "amazon_master_${target.name.replace(" ", "_")}_page_1",
+                        json = resp1.body,
+                    )
                     val parsed1 = AmazonNativeParser.parse(resp1.body, bullionRate24)
-                    var targetDiscovered = parsed1.candidates.size
-                    var targetValid = saveCandidates("amazon.in", parsed1.candidates, null, distinctPids)
+                    val newCandidates1 = parsed1.candidates.filter { it.retailerId !in distinctPids }
+                    var targetDiscovered = newCandidates1.size
+                    var targetValid = saveCandidates("amazon.in", newCandidates1, null, distinctPids)
                     discovered += targetDiscovered
                     valid += targetValid
 
-                    if (parsed1.candidates.isNotEmpty()) {
-                        for (page in 2..config.limits.maxPagesPerStore) {
+                    val totalAvailable = parsed1.totalResults
+                    val pageCap = if (totalAvailable > 0) minOf(20, (totalAvailable + 15) / 16) else minOf(20, config.limits.maxPagesPerStore)
+                    if (pageCap > 1) {
+                        var consecutiveEmptyPages = 0
+                        for (page in 2..pageCap) {
                             delay(config.delays.amazonPageDelayMs) // Gentle pacing avoids Amazon bot detection
                             plpRequests++
-                            val resp = CronetNetworkClient.executeCronetRequest("${target.url}&page=$page&ref=sr_pg_$page")
+                            activityRepository?.log(
+                                RefreshLogSeverity.Info,
+                                "amazon.in",
+                                "[Amazon] Fetching ${target.name} (page $page of $pageCap)..."
+                            )
+                            val cleanBaseUrl = target.url.replace(Regex("&ref=[^&]*"), "")
+                            val pageUrl = if (cleanBaseUrl.contains("?")) "$cleanBaseUrl&page=$page" else "$cleanBaseUrl?page=$page"
+                            val resp = CronetNetworkClient.executeCronetWithHeaders(pageUrl, amazonHeaders)
                             if (resp.status in 200..299) {
+                                DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_$page", resp.body, "html")
+                                recordRawPayload(
+                                    id = UUID.randomUUID().toString(),
+                                    store = "amazon_master_${target.name.replace(" ", "_")}_page_$page",
+                                    json = resp.body,
+                                )
                                 val p = AmazonNativeParser.parse(resp.body, bullionRate24)
-                                if (p.candidates.isEmpty()) break
-                                val s = saveCandidates("amazon.in", p.candidates, null, distinctPids)
-                                discovered += p.candidates.size
+                                if (p.candidates.isEmpty()) {
+                                    consecutiveEmptyPages++
+                                    if (consecutiveEmptyPages >= 3) break
+                                } else {
+                                    consecutiveEmptyPages = 0
+                                }
+                                val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
+                                val s = saveCandidates("amazon.in", newCandidates, null, distinctPids)
+                                discovered += newCandidates.size
                                 valid += s
-                                targetDiscovered += p.candidates.size
+                                targetDiscovered += newCandidates.size
                                 targetValid += s
                             } else {
                                 break
@@ -722,11 +863,14 @@ class NativeParallelRefreshEngine(
                 "Existing prices preserved: catalogue scan complete (${duration}ms)",
             )
         }
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
         return result
     }
 
     // =========================================================================
-    // MYNTRA ENGINE
+    // MYNTRA ENGINE (Gateway v4 API + Web Fallback)
     // =========================================================================
     private suspend fun refreshMyntra(
         pincode: String,
@@ -735,19 +879,16 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
+        runCatching { database.dao().markAllStoreProductsStale("myntra.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
         val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val desktopHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
-        )
-
         val config = ScraperConfigProvider.get()
+        val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
+        val webHeaders = config.stores["myntra"]?.webHeaders ?: config.network.desktopHeaders
         val myntraTargets = config.myntraTargets
 
         for (target in myntraTargets) {
@@ -756,16 +897,43 @@ class NativeParallelRefreshEngine(
                 activityRepository?.log(
                     RefreshLogSeverity.Info,
                     "myntra.com",
-                    "[Myntra] Fetching ${target.name} (page 1)..."
+                    "[Myntra] Establishing session for ${target.name}..."
                 )
+                // 1. Visit web URL first to populate Akamai / Myntra session cookies in Cronet
+                plpRequests++
+                val initResp = CronetNetworkClient.executeCronetWithHeaders(target.url, webHeaders)
+
+                val rawCookies = (initResp.headers["set-cookie"] ?: initResp.headers["Set-Cookie"] ?: emptyList())
+                    .map { it.substringBefore(';') }
+                    .filter { it.isNotBlank() }
+                    .joinToString("; ")
+
+                val sessionGatewayHeaders = if (rawCookies.isNotBlank()) {
+                    gatewayHeaders + ("Cookie" to rawCookies)
+                } else gatewayHeaders
+
                 var targetDiscovered = 0
                 var targetValid = 0
 
-                val page1Sep = if (target.url.contains("?")) "&" else "?"
-                val page1Url = "${target.url}${page1Sep}p=1"
+                val categorySlug = if (target.slug.isNotBlank()) target.slug else "gold-coin"
+                val gatewayBase = config.stores["myntra"]?.gatewayBaseUrl?.takeIf { it.isNotBlank() } ?: "https://www.myntra.com/gateway/v4/search/"
+                val page1ApiUrl = "${gatewayBase}$categorySlug?rows=100&o=0&plaEnabled=true&xdEnabled=false&isFacet=true&p=1&pincode=$pincode"
                 plpRequests++
-                val pageResp = CronetNetworkClient.executeCronetWithHeaders(page1Url, desktopHeaders)
-                if (pageResp.status in 200..299 && pageResp.body.contains("window.__myx")) {
+                var pageResp = CronetNetworkClient.executeCronetWithHeaders(page1ApiUrl, sessionGatewayHeaders)
+                if (pageResp.status != 200) {
+                    pageResp = initResp
+                }
+
+                if (pageResp.status in 200..299) {
+                    DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_1", pageResp.body, if (pageResp.body.trimStart().startsWith("<")) "html" else "json")
+                    recordRawPayload(
+                        id = UUID.randomUUID().toString(),
+                        store = "myntra_master_${target.name.replace(" ", "_")}_page_1",
+                        json = pageResp.body,
+                    )
+                    var currentPaginationCtx = pageResp.headers["pagination-context"]?.firstOrNull()
+                        ?: pageResp.headers["Pagination-Context"]?.firstOrNull()
+
                     val parsed = MyntraNativeParser.parse(pageResp.body, bullionRate24)
                     val s0 = saveCandidates("myntra.com", parsed.candidates, pincode, distinctPids)
                     targetDiscovered += parsed.candidates.size
@@ -774,13 +942,43 @@ class NativeParallelRefreshEngine(
                     valid += s0
 
                     val seenIds = parsed.candidates.map { it.retailerId }.toMutableSet()
-                    if (parsed.candidates.isNotEmpty()) {
-                        for (page in 2..config.limits.maxPagesPerStore) {
-                            delay(config.delays.myntraWebPageDelayMs)
-                            val pageSep = if (target.url.contains("?")) "&" else "?"
+                    val totalAvailable = parsed.totalCount
+                    val totalPagesAvailable = if (totalAvailable > 0) (totalAvailable + 99) / 100 else config.limits.maxPagesPerStore
+                    val pageLimit = totalPagesAvailable
+
+                    if (pageLimit > 1) {
+                        for (page in 2..pageLimit) {
+                            delay(config.delays.myntraApiPageDelayMs)
+                            val offset = (page - 1) * 100
+                            val nextApiUrl = "${gatewayBase}$categorySlug?rows=100&o=$offset&plaEnabled=true&xdEnabled=false&isFacet=true&p=$page&pincode=$pincode"
+                            val nextHeaders = if (!currentPaginationCtx.isNullOrBlank()) {
+                                sessionGatewayHeaders + ("pagination-context" to currentPaginationCtx)
+                            } else sessionGatewayHeaders
+
                             plpRequests++
-                            val r = CronetNetworkClient.executeCronetWithHeaders("${target.url}${pageSep}p=$page", desktopHeaders)
+                            activityRepository?.log(
+                                RefreshLogSeverity.Info,
+                                "myntra.com",
+                                "[Myntra] Fetching ${target.name} (page $page of $pageLimit)..."
+                            )
+                            var r = CronetNetworkClient.executeCronetWithHeaders(nextApiUrl, nextHeaders)
+                            if (r.status != 200) {
+                                val pageSep = if (target.url.contains("?")) "&" else "?"
+                                val nextWebUrl = "${target.url}${pageSep}p=$page"
+                                r = CronetNetworkClient.executeCronetWithHeaders(nextWebUrl, webHeaders)
+                            }
+
+                            val newCtx = r.headers["pagination-context"]?.firstOrNull()
+                                ?: r.headers["Pagination-Context"]?.firstOrNull()
+                            if (!newCtx.isNullOrBlank()) currentPaginationCtx = newCtx
+
                             if (r.status in 200..299) {
+                                DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_$page", r.body, if (r.body.trimStart().startsWith("<")) "html" else "json")
+                                recordRawPayload(
+                                    id = UUID.randomUUID().toString(),
+                                    store = "myntra_master_${target.name.replace(" ", "_")}_page_$page",
+                                    json = r.body,
+                                )
                                 val p = MyntraNativeParser.parse(r.body, bullionRate24)
                                 val newCandidates = p.candidates.filter { it.retailerId !in seenIds }
                                 if (newCandidates.isEmpty()) {
@@ -804,45 +1002,10 @@ class NativeParallelRefreshEngine(
                         "[Myntra] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
                     )
                 } else {
-                    // Gateway API fallback with dynamic pagination and category filter
-                    val gatewayHeaders = mapOf(
-                        "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept" to "application/json",
-                        "x-myntraweb" to "Yes",
-                        "x-requested-with" to "browser",
-                        "x-meta-app" to "channel=web",
-                        "Referer" to target.url,
-                    )
-                    val pageSize = config.limits.myntraPageSize
-                    val filterParam = if (target.filterQuery.isNotBlank()) "&${target.filterQuery}" else ""
-                    var page = 1
-                    var hasMore = true
-                    while (hasMore && page <= config.limits.maxPagesPerStore) {
-                        delay(config.delays.myntraApiPageDelayMs)
-                        val offset = (page - 1) * pageSize
-                        val gatewayUrl = "https://www.myntra.com/gateway/v4/search/${target.slug}?rows=$pageSize&o=$offset&p=$page&plaEnabled=true&xdEnabled=false&isFacet=true&pincode=$pincode$filterParam"
-                        plpRequests++
-                        val resp = CronetNetworkClient.executeCronetWithHeaders(gatewayUrl, gatewayHeaders)
-                        if (resp.status in 200..299) {
-                            val parsed = MyntraNativeParser.parse(resp.body, bullionRate24)
-                            val s = saveCandidates("myntra.com", parsed.candidates, pincode, distinctPids)
-                            discovered += parsed.candidates.size
-                            valid += s
-                            targetDiscovered += parsed.candidates.size
-                            targetValid += s
-                            if (parsed.candidates.isEmpty() || (parsed.totalCount > 0 && page * pageSize >= parsed.totalCount)) {
-                                hasMore = false
-                            }
-                        } else {
-                            hasMore = false
-                        }
-                        page++
-                    }
-                    val urlElapsed = System.currentTimeMillis() - urlStart
                     activityRepository?.log(
-                        RefreshLogSeverity.Info,
+                        RefreshLogSeverity.Warning,
                         "myntra.com",
-                        "[Myntra] ${target.name} Gateway API: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        "[Myntra] ${target.name} page 1 returned HTTP ${pageResp.status}"
                     )
                 }
             } catch (e: Exception) {
@@ -904,6 +1067,9 @@ class NativeParallelRefreshEngine(
                 "Existing prices preserved: catalogue scan complete (${duration}ms)",
             )
         }
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
         return result
     }
 
@@ -958,11 +1124,10 @@ class NativeParallelRefreshEngine(
                         )
                     )
 
-                    val logStore = if (sourceId == "tan") "tanishq" else sourceId
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
-                        logStore,
-                        "Rendered bullion rate saved: 24K ₹${parsed.price24}/g, 22K ₹${parsed.price22}/g",
+                        "bullion",
+                        "[$label] Rendered bullion rate saved: 24K ₹${parsed.price24}/g, 22K ₹${parsed.price22}/g",
                     )
 
                     parsed.price24
@@ -997,46 +1162,30 @@ class NativeParallelRefreshEngine(
                         database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
                     } else null
 
-                // STRICT PRE-INSERTION VALIDATION LAYER
-                val validation = Product24KValidator.validate(
-                    name = candidate.name ?: existing?.name ?: candidate.retailerId,
-                    store = store,
-                    karat = candidate.karat ?: existing?.karat,
-                    purity = candidate.purity ?: existing?.purity,
-                    price = candidate.price,
-                    grams = candidate.grams ?: existing?.grams,
-                    brand = candidate.brand ?: existing?.brand,
-                    canonicalUrl = candidate.canonicalUrl,
-                    retailerId = candidate.retailerId,
-                )
-
-                if (!validation.isValid) {
-                    if (existing != null) {
-                        database.dao().deleteProduct(existing.id)
-                    }
-                    continue
-                }
-
                 val entityId = existing?.id ?: UUID.randomUUID().toString()
                 val targetStore = existing?.store ?: store
                 val targetRetailerId = existing?.retailerId ?: candidate.retailerId
+
+                val rawName = candidate.name ?: existing?.name ?: targetRetailerId
+                val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
+                val finalTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
 
                 val entity = ProductEntity(
                     id = entityId,
                     store = targetStore,
                     retailerId = targetRetailerId,
                     canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
-                    name = validation.normalizedTitle,
+                    name = finalTitle,
                     brand = candidate.brand ?: existing?.brand,
                     grams = candidate.grams ?: existing?.grams,
-                    karat = validation.normalizedKarat,
-                    purity = validation.normalizedPurity,
+                    karat = candidate.karat ?: existing?.karat ?: 24.0,
+                    purity = candidate.purity ?: existing?.purity ?: "999",
                     price = candidate.price,
                     couponPrice = candidate.couponPrice,
-                    status = if (candidate.unavailable) "unavailable" else "live",
+                    status = if (isUnavailable) "unavailable" else "live",
                     refreshMethod = "$store-native-parallel",
                     checkedAt = now,
-                    lastLiveAt = if (!candidate.unavailable) now else existing?.lastLiveAt ?: 0,
+                    lastLiveAt = if (!isUnavailable) now else existing?.lastLiveAt ?: 0,
                     manuallyEditedAt = existing?.manuallyEditedAt,
                     unitWeightGrams = candidate.unitWeightGrams ?: existing?.unitWeightGrams,
                     quantity = candidate.quantity,
@@ -1049,7 +1198,7 @@ class NativeParallelRefreshEngine(
                     isBlinkDeal = candidate.isBlinkDeal,
                     blinkDealPrice = candidate.blinkDealPrice ?: existing?.blinkDealPrice,
                     blinkDealEndTime = existing?.blinkDealEndTime,
-                    deliverable = !candidate.unavailable,
+                    deliverable = !isUnavailable,
                     isMicroCoin = candidate.isMicroCoin,
                 )
 
@@ -1099,169 +1248,148 @@ class NativeParallelRefreshEngine(
         val unrefreshed = database.dao().allProducts().filter { p ->
             p.store == store &&
                 p.checkedAt < startedAt &&
-                p.status != "unavailable" &&
-                (p.karat == 24.0 || p.karat == null)
-        }.take(config.limits.maxPdpItemsPerStore)
+                p.status != "unavailable"
+        }
 
-        if (unrefreshed.isEmpty()) return PdpRefreshResult(0, 0, 0, 0)
+        if (unrefreshed.isEmpty()) {
+            database.dao().markUnrefreshedStoreProductsStale(store, startedAt)
+            return PdpRefreshResult(0, 0, 0, 0)
+        }
 
         activityRepository?.log(
             RefreshLogSeverity.Info,
             store,
-            "[$store] Starting sequential PDP verification for ${unrefreshed.size} stale/unrefreshed items..."
+            "[$store] Starting PDP verification for ${unrefreshed.size} items..."
         )
 
-        val desktopHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language" to "en-IN,en-US;q=0.9,en;q=0.8",
-        )
-        val gatewayHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "application/json",
-            "x-myntraweb" to "Yes",
-            "x-requested-with" to "browser",
-            "x-meta-app" to "channel=web",
-        )
+        val desktopHeaders = config.network.desktopHeaders
+        val ajioPdpHeaders = config.network.ajioPdpHeaders
+        val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
 
         var pdpRequests = 0
         var pdpUpdated = 0
         var pdpUnavailable = 0
         var pdpFailed = 0
+        var consecutiveFailures = 0
         var abortPdp = false
 
-        for ((idx, product) in unrefreshed.withIndex()) {
-            if (abortPdp) break
-            val delayMs = if (store == "amazon.in") config.delays.pdpAmazonDelayMs else config.delays.pdpInterRequestDelayMs
-            delay(delayMs)
+        val concurrency = config.limits.pdpConcurrency.coerceIn(1, 20)
+        val semaphore = kotlinx.coroutines.sync.Semaphore(concurrency)
 
-            val endpoint = when (store) {
-                "ajio.com" -> {
-                    val cleanId = product.retailerId.substringBefore('_')
-                    "https://www.ajio.com/api/p/$cleanId"
-                }
-                "myntra.com" -> {
-                    val numericId = product.retailerId.filter { it.isDigit() }
-                    if (numericId.isNotBlank()) "https://www.myntra.com/gateway/v2/product/$numericId"
-                    else product.canonicalUrl.takeIf { it.isNotBlank() }
-                }
-                "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl.takeIf { it.isNotBlank() }
-                else -> null
-            } ?: continue
+        coroutineScope {
+            unrefreshed.chunked(concurrency * 2).forEach { chunk ->
+                if (abortPdp) return@forEach
+                chunk.map { product ->
+                    async {
+                        if (abortPdp) return@async
+                        semaphore.withPermit {
+                            val delayMs = if (store == "amazon.in") config.delays.pdpAmazonDelayMs else config.delays.pdpInterRequestDelayMs
+                            delay(delayMs)
 
-            pdpRequests++
-            try {
-                val response = when (store) {
-                    "ajio.com" -> CronetNetworkClient.executeCronetApiRequest(endpoint, pincode ?: "560048")
-                    "myntra.com" -> if (endpoint.contains("gateway")) {
-                        CronetNetworkClient.executeCronetWithHeaders(endpoint, gatewayHeaders)
-                    } else {
-                        CronetNetworkClient.executeCronetWithHeaders(endpoint, desktopHeaders)
-                    }
-                    else -> CronetNetworkClient.executeCronetWithHeaders(endpoint, desktopHeaders)
-                }
-
-                if (response.status == 403 || response.status == 429) {
-                    activityRepository?.log(
-                        RefreshLogSeverity.Warning,
-                        store,
-                        "[$store] PDP verification hit HTTP ${response.status} on item ${idx + 1}/${unrefreshed.size} (${product.retailerId}). Triggering network session reset and halting PDP gracefully."
-                    )
-                    CronetNetworkClient.resetSession()
-                    abortPdp = true
-                    pdpFailed++
-                    break
-                }
-
-                val now = System.currentTimeMillis()
-                when (val lookup = ProductLookup.parse(store, response.status, response.body, endpoint)) {
-                    is ProductLookup.Available -> {
-                        val validation = Product24KValidator.validate(
-                            name = lookup.name ?: product.name,
-                            store = store,
-                            karat = product.karat,
-                            purity = product.purity,
-                            price = lookup.price,
-                            grams = lookup.grams ?: product.grams,
-                            brand = lookup.brand ?: product.brand,
-                            canonicalUrl = product.canonicalUrl,
-                            retailerId = product.retailerId,
-                        )
-                        if (!validation.isValid) {
-                            database.dao().deleteProduct(product.id)
-                            continue
-                        }
-                        val updatedProduct = product.copy(
-                            name = validation.normalizedTitle,
-                            karat = validation.normalizedKarat,
-                            purity = validation.normalizedPurity,
-                            brand = lookup.brand ?: product.brand,
-                            price = lookup.price,
-                            couponPrice = lookup.couponPrice ?: product.couponPrice,
-                            grams = lookup.grams ?: product.grams,
-                            weightConfidence = lookup.weightConfidence,
-                            status = "live",
-                            refreshMethod = lookup.refreshMethod,
-                            checkedAt = now,
-                            lastLiveAt = now,
-                            deliverable = true,
-                            isBlinkDeal = lookup.isBlinkDeal,
-                            blinkDealPrice = lookup.blinkDealPrice ?: product.blinkDealPrice,
-                        )
-                        database.dao().upsertProduct(updatedProduct)
-
-                        if (product.price != lookup.price || product.couponPrice != lookup.couponPrice) {
-                            runCatching {
-                                if (!database.dao().hasPriceHistory(product.id, lookup.price, lookup.couponPrice, now)) {
-                                    database.dao().insertPriceHistory(
-                                        ProductPriceHistoryEntity(
-                                            productId = product.id,
-                                            price = lookup.price,
-                                            couponPrice = lookup.couponPrice,
-                                            checkedAt = now,
-                                        )
-                                    )
+                            val endpoint = when (store) {
+                                "ajio.com" -> {
+                                    val cleanId = product.retailerId.substringBefore('_')
+                                    val pattern = config.stores["ajio"]?.pdpUrlPattern?.takeIf { it.isNotBlank() } ?: "https://www.ajio.com/api/p/%s"
+                                    if (pattern.contains("{id}")) pattern.replace("{id}", cleanId) else String.format(pattern, cleanId)
                                 }
+                                "myntra.com" -> {
+                                    val pattern = config.stores["myntra"]?.pdpWebPattern?.takeIf { it.isNotBlank() } ?: "https://www.myntra.com/%s"
+                                    if (pattern.contains("{id}")) pattern.replace("{id}", product.retailerId) else String.format(pattern, product.retailerId)
+                                }
+                                "amazon.in", "flipkart.com", "shopsy.in" -> product.canonicalUrl.takeIf { it.isNotBlank() }
+                                else -> null
+                            } ?: return@async
+
+                            pdpRequests++
+                            try {
+                                val response = when (store) {
+                                    "ajio.com" -> CronetNetworkClient.executeCronetWithHeaders(endpoint, ajioPdpHeaders)
+                                    else -> CronetNetworkClient.executeCronetWithHeaders(endpoint, desktopHeaders)
+                                }
+
+                                val ext = if (response.body.trimStart().startsWith("<") || response.body.trimStart().startsWith("<!")) "html" else "json"
+                                DatabaseBackupManager.saveRawPage(store, "pdp_${product.retailerId}", response.body, ext)
+
+                                if (response.status == 403 || response.status == 429) {
+                                    consecutiveFailures++
+                                    pdpFailed++
+                                    if (consecutiveFailures >= config.limits.pdpMaxConsecutiveFailures) {
+                                        activityRepository?.log(
+                                            RefreshLogSeverity.Warning,
+                                            store,
+                                            "[$store] PDP verification hit HTTP ${response.status} ${config.limits.pdpMaxConsecutiveFailures} times. Gracefully aborting PDP."
+                                        )
+                                        CronetNetworkClient.resetSession()
+                                        abortPdp = true
+                                        return@async
+                                    } else {
+                                        delay(config.delays.ajioRateLimitBackoffMs)
+                                        return@async
+                                    }
+                                } else {
+                                    consecutiveFailures = 0
+                                }
+
+                                val now = System.currentTimeMillis()
+                                when (val lookup = ProductLookup.parse(store, response.status, response.body, endpoint)) {
+                                    is ProductLookup.Available -> {
+                                        val validation = Product24KValidator.validate(
+                                            name = lookup.name ?: product.name,
+                                            store = store,
+                                            karat = product.karat,
+                                            purity = product.purity,
+                                            price = lookup.price,
+                                            grams = lookup.grams ?: product.grams,
+                                            brand = lookup.brand ?: product.brand,
+                                            canonicalUrl = product.canonicalUrl,
+                                            retailerId = product.retailerId,
+                                        )
+                                        if (!validation.isValid) {
+                                            database.dao().deleteProduct(product.id)
+                                            return@async
+                                        }
+                                        val updatedProduct = product.copy(
+                                            name = validation.normalizedTitle,
+                                            karat = validation.normalizedKarat,
+                                            purity = validation.normalizedPurity,
+                                            brand = lookup.brand ?: product.brand,
+                                            price = lookup.price,
+                                            couponPrice = lookup.couponPrice ?: product.couponPrice,
+                                            grams = lookup.grams ?: product.grams,
+                                            weightConfidence = lookup.weightConfidence,
+                                            status = "live",
+                                            refreshMethod = lookup.refreshMethod,
+                                            checkedAt = now,
+                                            lastLiveAt = now,
+                                            deliverable = true,
+                                            isBlinkDeal = lookup.isBlinkDeal,
+                                            blinkDealPrice = lookup.blinkDealPrice ?: product.blinkDealPrice,
+                                        )
+                                        database.dao().upsertProduct(updatedProduct)
+                                        pdpUpdated++
+                                    }
+                                    is ProductLookup.Unavailable -> {
+                                        database.dao().upsertProduct(
+                                            product.copy(
+                                                status = "unavailable",
+                                                deliverable = false,
+                                                checkedAt = now,
+                                                price = lookup.price ?: product.price,
+                                            )
+                                        )
+                                        pdpUnavailable++
+                                    }
+                                    ProductLookup.Unknown -> {
+                                        pdpFailed++
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                pdpFailed++
+                                Log.w(tag, "PDP verification error for ${product.retailerId}: ${e.message}")
                             }
                         }
-                        pdpUpdated++
                     }
-                    is ProductLookup.Unavailable -> {
-                        val validation = Product24KValidator.validate(
-                            name = product.name,
-                            store = store,
-                            karat = product.karat,
-                            purity = product.purity,
-                            price = lookup.price ?: product.price,
-                            grams = product.grams,
-                            brand = product.brand,
-                            canonicalUrl = product.canonicalUrl,
-                            retailerId = product.retailerId,
-                        )
-                        if (!validation.isValid) {
-                            database.dao().deleteProduct(product.id)
-                            continue
-                        }
-                        database.dao().upsertProduct(
-                            product.copy(
-                                name = validation.normalizedTitle,
-                                karat = validation.normalizedKarat,
-                                purity = validation.normalizedPurity,
-                                status = "unavailable",
-                                deliverable = false,
-                                checkedAt = now,
-                                price = lookup.price ?: product.price,
-                            )
-                        )
-                        pdpUnavailable++
-                    }
-                    ProductLookup.Unknown -> {
-                        pdpFailed++
-                    }
-                }
-            } catch (e: Exception) {
-                pdpFailed++
-                Log.w(tag, "PDP verification error for ${product.retailerId}: ${e.message}")
+                }.awaitAll()
             }
         }
 
@@ -1273,6 +1401,19 @@ class NativeParallelRefreshEngine(
             )
         }
 
+        val demotedStale = database.dao().markUnrefreshedStoreProductsStale(store, startedAt)
+        if (demotedStale > 0) {
+            activityRepository?.log(
+                RefreshLogSeverity.Info,
+                store,
+                "[$store] Reconciled catalogue: $demotedStale unrefreshed items marked stale"
+            )
+        }
+
+        context?.let { ctx ->
+            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+        }
+
         return PdpRefreshResult(
             requests = pdpRequests,
             successful = pdpUpdated + pdpUnavailable,
@@ -1282,6 +1423,8 @@ class NativeParallelRefreshEngine(
     }
 
     private suspend fun recordRawPayload(id: String, store: String, json: String) {
+        val ext = if (json.trimStart().startsWith("<") || json.trimStart().startsWith("<!")) "html" else "json"
+        DatabaseBackupManager.saveRawPage(store, id.take(8), json, ext)
         val payload = RawBridgePayloadEntity(
             id = id,
             store = store,
@@ -1293,6 +1436,5 @@ class NativeParallelRefreshEngine(
         } else {
             database.dao().insertRawPayload(payload)
         }
-        internalDatabase?.dao()?.insertRawPayload(payload)
     }
 }

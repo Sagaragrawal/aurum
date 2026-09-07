@@ -1,4 +1,9 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -30,7 +35,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.aurum.intelligence.data.RefreshActivityLogEntity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -57,7 +61,7 @@ fun RefreshActivityPanel(
     val clipboardManager = LocalContext.current.getSystemService(ClipboardManager::class.java)
     androidx.compose.runtime.LaunchedEffect(copied) {
         if (copied) {
-            delay(1_500)
+            delay(ScraperConfigProvider.get().delays.uiCopyFeedbackTimeoutMs)
             copied = false
         }
     }
@@ -182,6 +186,7 @@ private fun storeColor(store: String?): Color = when (store) {
     "flipkart.com" -> Color(0xFF46C2B8)
     "myntra.com" -> Color(0xFFFF6B9A)
     "shopsy.in" -> Color(0xFF8E44AD)
+    "bullion" -> Color(0xFFF0B429)
     "tanishq" -> Color(0xFFF0B429)
     else -> Color(0xFFB0B8C2)
 }

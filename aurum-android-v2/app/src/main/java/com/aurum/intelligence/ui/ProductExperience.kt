@@ -1,4 +1,9 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -65,11 +70,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.aurum.intelligence.data.BullionBenchmark
-import com.aurum.intelligence.data.BullionSourceEntity
-import com.aurum.intelligence.data.ProductEntity
-import com.aurum.intelligence.data.RefreshActivityLogEntity
-import com.aurum.intelligence.data.RefreshRequest
 import com.aurum.intelligence.ui.theme.AurumGreen
 import com.aurum.intelligence.ui.theme.AurumLine
 import com.aurum.intelligence.ui.theme.AurumRed
@@ -181,7 +181,7 @@ fun ProductWatchlistScreen(
     }
     LaunchedEffect(pendingDeleteId) {
         if (pendingDeleteId != null) {
-            delay(4_000)
+            delay(ScraperConfigProvider.get().delays.uiUndoTimeoutMs)
             pendingDeleteId = null
         }
     }

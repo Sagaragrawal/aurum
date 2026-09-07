@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.engine
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.util.Log
 import com.aurum.intelligence.parsers.AjioNativeParser
@@ -30,7 +35,7 @@ data class Summary22KReport(
 object Standalone22KEngine {
     private const val TAG = "Standalone22KEngine"
 
-    suspend fun audit22kAcrossStores(pincode: String = "560048"): Summary22KReport = withContext(Dispatchers.IO) {
+    suspend fun audit22kAcrossStores(pincode: String = ScraperConfigProvider.get().location.defaultPincode): Summary22KReport = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
         val config = ScraperConfigProvider.get()
 
@@ -85,10 +90,7 @@ object Standalone22KEngine {
         val target = config.targets22k.firstOrNull { it.name.contains("Flipkart", ignoreCase = true) }
             ?: return Store22KReport("flipkart.com", "Flipkart 22K", 0, 0, 0, 0, "No target configured")
 
-        val desktopHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        )
+        val desktopHeaders = config.network.desktopHeaders
 
         return try {
             val url = "${target.url}&pinCode=$pincode"
@@ -113,16 +115,12 @@ object Standalone22KEngine {
         val target = config.targets22k.firstOrNull { it.name.contains("Myntra", ignoreCase = true) }
             ?: return Store22KReport("myntra.com", "Myntra 22K", 0, 0, 0, 0, "No target configured")
 
-        val gatewayHeaders = mapOf(
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept" to "application/json",
-            "x-myntraweb" to "Yes",
-            "x-requested-with" to "browser",
-            "x-meta-app" to "channel=web",
-        )
+        val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
 
         return try {
-            val url = "https://www.myntra.com/gateway/v4/search/${target.slug}?rows=50&o=0&p=1&plaEnabled=true&xdEnabled=false&isFacet=true&pincode=$pincode&${target.filterQuery}"
+            val gatewayBase = config.stores["myntra"]?.gatewayBaseUrl?.takeIf { it.isNotBlank() } ?: "https://www.myntra.com/gateway/v4/search/"
+            val rows = config.limits.myntraPageSize
+            val url = "${gatewayBase}${target.slug}?rows=$rows&o=0&p=1&plaEnabled=true&xdEnabled=false&isFacet=true&pincode=$pincode&${target.filterQuery}"
             val resp = CronetNetworkClient.executeCronetWithHeaders(url, gatewayHeaders)
             if (resp.status in 200..299) {
                 val parsed = MyntraNativeParser.parse(resp.body, null)

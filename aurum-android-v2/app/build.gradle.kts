@@ -14,10 +14,8 @@ android {
         applicationId = "com.aurum.intelligence"
         minSdk = 26
         targetSdk = 36
-        versionCode = 40924
-        versionName = "4.9.24"
-        versionCode = 40925
-        versionName = "4.9.25"
+        versionCode = 40926
+        versionName = "4.9.26"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -29,6 +27,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 

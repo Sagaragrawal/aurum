@@ -1,7 +1,10 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
-import com.aurum.intelligence.data.ProductEntity
-import com.aurum.intelligence.data.ProductAvailability
 import kotlin.math.abs
 
 enum class PurityFilter(val label: String) { K24("24K"), K22("22K"), Other("Other") }
@@ -57,7 +60,7 @@ object ProductCalculations {
     // Single authoritative "trustworthy right now" window, shared by the Live quick filter and Deal
     // Radar so both mean the same thing: a live-priced observation older than this is not shown as
     // currently live.
-    const val LIVE_FRESHNESS_MILLIS = 24 * 60 * 60 * 1_000L
+    val LIVE_FRESHNESS_MILLIS: Long get() = ScraperConfigProvider.get().policy.liveFreshnessMillis
 
     fun isUnavailable(product: ProductEntity): Boolean =
         product.status == "unavailable" ||
@@ -69,8 +72,6 @@ object ProductCalculations {
 
     fun displayName(product: ProductEntity): String = ProductAvailability.displayName(product.name)
 
-    // status=="live" alone does not mean recently live: it persists until the next merge. This is the
-    // one place that combines status + availability + price validity + freshness into "recently live".
     fun isRecentlyLive(product: ProductEntity, nowMillis: Long = System.currentTimeMillis()): Boolean =
         product.status == "live" &&
             !isUnavailable(product) &&
@@ -235,7 +236,7 @@ object ProductCalculations {
 
     private fun liveRank(product: ProductEntity): Int = when {
         isUnavailable(product) -> 2
-        product.status == "live" -> 0
+        isRecentlyLive(product) -> 0
         else -> 1
     }
 

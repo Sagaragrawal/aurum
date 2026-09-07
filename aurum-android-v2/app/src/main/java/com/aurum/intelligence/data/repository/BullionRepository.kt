@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import androidx.room.withTransaction
 import java.net.HttpURLConnection
@@ -24,14 +29,14 @@ data class BullionRefreshProgress(
 
 class BullionRepository(private val database: AurumDatabase) {
     val sources = database.dao().observeBullionSources()
-    val history = database.dao().observeRecentBullionHistory(480)
+    val history = database.dao().observeRecentBullionHistory(ScraperConfigProvider.get().bullion.historyRetentionCount)
     private val refreshMutex = Mutex()
     private val mutableProgress = MutableStateFlow(BullionRefreshProgress())
     val progress = mutableProgress.asStateFlow()
 
     suspend fun ensureSources() = withContext(Dispatchers.IO) {
         database.dao().deleteImplausibleBullionHistory()
-        defaultSources.forEach { source ->
+        getDefaultSources().forEach { source ->
             val existing = database.dao().bullionSourceById(source.id)
             when {
                 existing == null -> database.dao().upsertBullionSource(source)
@@ -159,18 +164,25 @@ class BullionRepository(private val database: AurumDatabase) {
         if (source.transport == TRANSPORT_BROWSER_REQUIRED) {
             error("Browser rendering required; direct Android HTTP is unavailable for ${source.source}")
         }
-        val response = when (source.id) {
-            "malabar" -> request(malabarApiUrl(), "GET", accept = "application/json")
-            "mmtc" -> request(
-                "https://www.mmtcpamp.com/api/getQuote",
-                "POST",
-                body = "{\"currencyPair\":\"XAU/INR\",\"type\":\"BUY\"}",
-                accept = "application/json",
-                referer = source.url,
-            )
-            "kalyan" -> request(source.url, "GET")
-            else -> error("No direct Android collector for ${source.id}")
+        val target = ScraperConfigProvider.get().bullion.sources.firstOrNull { it.id == source.id }
+            ?: error("No direct Android collector for ${source.id}")
+
+        val requestUrl = if (target.graphQlQuery.isNotBlank()) {
+            val encodedQuery = URLEncoder.encode(target.graphQlQuery, StandardCharsets.UTF_8.name())
+            val encodedVars = URLEncoder.encode(target.graphQlVariables, StandardCharsets.UTF_8.name())
+            target.apiUrl + encodedQuery + "&variables=" + encodedVars
+        } else {
+            target.apiUrl.ifBlank { target.url }
         }
+
+        val postBody = target.postBody.takeIf { it.isNotBlank() }
+        val response = request(
+            url = requestUrl,
+            method = target.requestMethod,
+            body = postBody,
+            accept = target.accept,
+            referer = if (postBody != null) source.url else null,
+        )
         return BullionRateParser.parse(response, source.id).also {
             require(it.price24 != null && it.price24 > 0) { "24K rate not found in ${source.source} response" }
         }
@@ -183,14 +195,15 @@ class BullionRepository(private val database: AurumDatabase) {
         accept: String = "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
         referer: String? = null,
     ): String {
+        val bullionConfig = ScraperConfigProvider.get().bullion
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 12_000
+            connection.connectTimeout = bullionConfig.connectTimeoutMs
+            connection.readTimeout = bullionConfig.readTimeoutMs
             connection.setRequestProperty("Accept", accept)
             connection.setRequestProperty("Accept-Language", "en-IN,en;q=0.9")
-            connection.setRequestProperty("User-Agent", USER_AGENT)
+            connection.setRequestProperty("User-Agent", bullionConfig.userAgent)
             referer?.let { connection.setRequestProperty("Referer", it) }
             if (body != null) {
                 connection.doOutput = true
@@ -206,23 +219,28 @@ class BullionRepository(private val database: AurumDatabase) {
         }
     }
 
-    private fun malabarApiUrl(): String {
-        val query = "query getMetalRate(\$filter: MetalRateFilterInput) { getMetalRate(filter: \$filter) { items { entry_date entry_time purity unit rate country state } } }"
-        val variables = "{\"filter\":{\"metal_type\":\"gold\",\"country\":\"India\"}}"
-        return "https://www.malabargoldanddiamonds.com/graphql-magento?query=" +
-            URLEncoder.encode(query, StandardCharsets.UTF_8.name()) + "&variables=" +
-            URLEncoder.encode(variables, StandardCharsets.UTF_8.name())
-    }
-
     companion object {
         const val TRANSPORT_DIRECT_HTTP = "direct_http"
         const val TRANSPORT_BROWSER_REQUIRED = "browser_required"
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"
-        private val defaultSources = listOf(
-            BullionSourceEntity("tan", "Tanishq", "Tanishq gold rate", "https://www.tanishq.co.in/gold-rate.html", null, null, false, "unavailable", TRANSPORT_BROWSER_REQUIRED, null, null, null, "Browser rendering required"),
-            BullionSourceEntity("malabar", "Malabar Gold & Diamonds", "Malabar Gold & Diamonds", "https://www.malabargoldanddiamonds.com/in/pan-india/en/live-gold-rate.html", null, null, false, "unavailable", TRANSPORT_DIRECT_HTTP, null, null, null, null),
-            BullionSourceEntity("mmtc", "MMTC-PAMP", "MMTC-PAMP", "https://www.mmtcpamp.com/gold-silver-rate-today", null, null, false, "unavailable", TRANSPORT_DIRECT_HTTP, null, null, null, null),
-            BullionSourceEntity("kalyan", "Kalyan Jewellers", "Kalyan Jewellers", "https://store.kalyanjewellers.net/gold-rate/india/en", null, null, false, "unavailable", TRANSPORT_DIRECT_HTTP, null, null, null, null),
-        )
+
+        fun getDefaultSources(): List<BullionSourceEntity> {
+            return ScraperConfigProvider.get().bullion.sources.map { src ->
+                BullionSourceEntity(
+                    id = src.id,
+                    source = src.name,
+                    label = src.description,
+                    url = src.url,
+                    price24 = null,
+                    price22 = null,
+                    price22Derived = false,
+                    status = "unavailable",
+                    transport = src.transport,
+                    fetchedAt = null,
+                    lastLiveAt = null,
+                    lastAttemptAt = null,
+                    error = src.errorNote,
+                )
+            }
+        }
     }
 }

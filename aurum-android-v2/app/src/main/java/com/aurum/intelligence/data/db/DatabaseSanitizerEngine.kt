@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.db
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 object DatabaseSanitizerEngine {
 
@@ -49,7 +54,8 @@ object DatabaseSanitizerEngine {
     }
 
     fun isMicroCoin(weightGrams: Double?): Boolean {
-        return weightGrams != null && weightGrams > 0 && weightGrams < 0.25
+        val maxGrams = ScraperConfigProvider.get().policy.microCoinMaxGrams
+        return weightGrams != null && weightGrams > 0 && weightGrams < maxGrams
     }
 
     fun isNonGold(title: String, extraText: String? = null): Boolean {
@@ -84,7 +90,9 @@ object DatabaseSanitizerEngine {
         }
         // 6. Non-bullion jewelry (nose pins, earrings, rings, necklaces, chains, bangles, mangalsutras, bracelets)
         if (Regex("\\b(?:nose\\s*pin|earring|earrings|ring|rings|necklace|necklaces|chain|chains|bangle|bangles|mangalsutra|bracelet|anklet)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (!Regex("\\b(?:coin|bar)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            val isCoinPendant = combined.contains("pendant") && (combined.contains("coin") || combined.contains("bar") || combined.contains("24") || combined.contains("999") || combined.contains("995"))
+            val isVedhaniRing = (combined.contains("ring") || combined.contains("vedhani")) && (combined.contains("vedhani") || combined.contains("995") || combined.contains("999") || combined.contains("24"))
+            if (!Regex("\\b(?:coin|bar|vedhani)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined) && !isCoinPendant && !isVedhaniRing) {
                 return true
             }
         }
@@ -99,9 +107,8 @@ object DatabaseSanitizerEngine {
 
     fun normalizeVendorWeight(grams: Double?, price: Double): Double? {
         if (grams == null || !grams.isFinite() || grams <= 0) return null
-        // If price / grams is < ₹3,000/g for a gold coin (current gold rate is ~₹15,000/g):
-        // Check if vendor entered 500g instead of 500mg (or 100g instead of 100mg, 50g instead of 50mg)
-        if (grams >= 50.0 && (price / grams) < 3000.0 && price < 100000.0) {
+        val policy = ScraperConfigProvider.get().policy
+        if (grams >= policy.vendorWeightCorrectionMinGrams && (price / grams) < policy.vendorWeightCorrectionThreshold && price < policy.vendorWeightCorrectionMaxPrice) {
             return grams / 1000.0
         }
         return grams
@@ -111,17 +118,17 @@ object DatabaseSanitizerEngine {
         if (price <= 0 || !price.isFinite()) return false
         if (weightGrams == null || weightGrams <= 0) return true // Cannot evaluate price per gram without weight
 
+        val policy = ScraperConfigProvider.get().policy
         val pricePerGram = price / weightGrams
-        val minPlausible = 3000.0 // Min ₹3,000/g
-        val maxPlausible = 35000.0 // Max ₹35,000/g
+        val minPlausible = policy.minPlausibleGoldPricePerGram
+        val maxPlausible = policy.maxPlausibleGoldPricePerGram
 
         if (pricePerGram !in minPlausible..maxPlausible) return false
 
         if (bullionRate24 != null && bullionRate24 > 0) {
             val karatFactor = (karat ?: 24.0) / 24.0
             val benchmarkPerGram = bullionRate24 * karatFactor
-            // Price per gram should not be less than 95% or more than 300% of live bullion rate
-            if (pricePerGram < benchmarkPerGram * 0.95 || pricePerGram > benchmarkPerGram * 3.0) {
+            if (pricePerGram < benchmarkPerGram * 0.80 || pricePerGram > benchmarkPerGram * 3.50) {
                 return false
             }
         }
@@ -155,5 +162,21 @@ object DatabaseSanitizerEngine {
             }
         }
         return deletedCount
+    }
+
+    suspend fun reconcileStaleLiveProducts(database: AurumDatabase): Int {
+        val allProducts = database.dao().allProducts()
+        var demotedCount = 0
+        val now = System.currentTimeMillis()
+        val staleThreshold = now - ScraperConfigProvider.get().policy.staleThresholdMillis
+        for (product in allProducts) {
+            if (product.status == "live" && product.checkedAt < staleThreshold) {
+                database.dao().upsertProduct(
+                    product.copy(status = "stale")
+                )
+                demotedCount++
+            }
+        }
+        return demotedCount
     }
 }

@@ -1,4 +1,9 @@
-package com.aurum.intelligence.data
+package com.aurum.intelligence.data.repository
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.Manifest
 import android.content.Context
@@ -20,7 +25,7 @@ data class LocationDetails(
 )
 
 object LocationHelper {
-    const val DEFAULT_PINCODE = "560048"
+    val defaultPincode: String get() = ScraperConfigProvider.get().location.defaultPincode
 
     fun hasLocationPermission(context: Context): Boolean {
         val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -61,7 +66,7 @@ object LocationHelper {
         }
 
         // Priority 4: Default Fallback
-        return LocationDetails(pincode = DEFAULT_PINCODE, source = "default")
+        return LocationDetails(pincode = defaultPincode, source = "default")
     }
 
     suspend fun detectGpsPincode(context: Context): String? = detectGpsLocationDetails(context)?.pincode
@@ -96,8 +101,9 @@ object LocationHelper {
     }
 
     fun buildPincodeInjectionScript(pincode: String, latitude: Double? = null, longitude: Double? = null): String {
-        val lat = latitude ?: 12.9716
-        val lng = longitude ?: 77.5946
+        val config = ScraperConfigProvider.get()
+        val lat = latitude ?: config.location.defaultLatitude
+        val lng = longitude ?: config.location.defaultLongitude
         return """
         (function() {
             try {

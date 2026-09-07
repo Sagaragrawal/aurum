@@ -1,4 +1,9 @@
 package com.aurum.intelligence.ui
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
@@ -64,13 +69,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aurum.intelligence.AurumApplication
-import com.aurum.intelligence.data.ProductEntity
-import com.aurum.intelligence.data.ProductEdits
-import com.aurum.intelligence.data.RefreshRequest
-import com.aurum.intelligence.data.BullionBenchmark
-import com.aurum.intelligence.data.BullionRefreshProgress
-import com.aurum.intelligence.data.BullionSourceEntity
-import com.aurum.intelligence.data.BullionRepository
 import java.text.NumberFormat
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -120,7 +118,7 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
     val bottomBarHeight = with(density) { bottomBarHeightPx.toDp() }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
 
-    fun refreshEverything() {
+    fun refreshEverything(targetStores: Set<String>? = null) {
         if (refreshing) return
         refreshing = true
         application.applicationScope.launch {
@@ -130,8 +128,9 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
                     latitude = settings.latitude,
                     longitude = settings.longitude,
                     maxPagesPerStore = 10,
+                    targetStores = targetStores,
                 )
-                com.aurum.intelligence.data.DatabaseBackupManager.createBackup(application.repository, application)
+                com.aurum.intelligence.data.db.DatabaseBackupManager.createBackup(application.repository, application)
             } finally {
                 refreshing = false
             }
@@ -267,8 +266,8 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
                     refreshActivity = refreshActivity,
                     model = model,
                     modifier = Modifier.weight(1f),
-                    onRefresh = { _ ->
-                        refreshEverything()
+                    onRefresh = { request ->
+                        refreshEverything(request.stores.takeIf { it.isNotEmpty() })
                     },
                     onClearRefreshActivity = model::clearRefreshActivity,
                 )
@@ -289,7 +288,7 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
 private fun BrowserDashboard(
     productRefreshRunning: Boolean,
     bullionRefreshRunning: Boolean,
-    logs: List<com.aurum.intelligence.data.RefreshActivityLogEntity>,
+    logs: List<com.aurum.intelligence.data.db.RefreshActivityLogEntity>,
     onRefreshEverything: () -> Unit,
     onClearLogs: () -> Unit,
     showRefreshActivity: Boolean,
@@ -370,7 +369,7 @@ private fun BrowserStatusTile(label: String, value: String, running: Boolean, mo
 private fun MarketScreen(
     sources: List<BullionSourceEntity>,
     products: List<ProductEntity>,
-    history: List<com.aurum.intelligence.data.BullionHistoryEntity>,
+    history: List<com.aurum.intelligence.data.db.BullionHistoryEntity>,
     dealMode: DealMode,
     dealPercentThreshold: Double,
     dealRupeesThreshold: Double,

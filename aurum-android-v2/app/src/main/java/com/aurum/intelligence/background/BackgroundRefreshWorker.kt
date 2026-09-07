@@ -1,4 +1,9 @@
 package com.aurum.intelligence.background
+import com.aurum.intelligence.data.db.*
+import com.aurum.intelligence.data.engine.*
+import com.aurum.intelligence.data.model.*
+import com.aurum.intelligence.data.repository.*
+import com.aurum.intelligence.data.validation.*
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -29,19 +34,22 @@ class BackgroundRefreshWorker(
 ) : CoroutineWorker(appContext, parameters) {
 
     override suspend fun getForegroundInfo(): ForegroundInfo {
+        val config = ScraperConfigProvider.get()
+        val channelId = config.notifications.channelRefreshId
+        val notificationId = config.notifications.notificationRefreshId
         if (Build.VERSION.SDK_INT >= 26) {
             val manager = applicationContext.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Background refresh", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(channelId, config.notifications.channelRefreshName, NotificationManager.IMPORTANCE_LOW)
             )
         }
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setContentTitle("Aurum Background Refresh")
             .setContentText("Checking for deals and updated prices...")
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return ForegroundInfo(notificationId, notification)
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.Main) {
@@ -51,14 +59,14 @@ class BackgroundRefreshWorker(
             application.settingsRepository.markBackgroundRefreshRequested()
 
             val settings = application.settingsRepository.settings.first()
-            val pincode = settings.pincode ?: "560048"
+            val pincode = settings.pincode.takeIf { it.isNotBlank() } ?: ScraperConfigProvider.get().location.defaultPincode
 
             // 100% Native Parallel Refresh for All 5 Stores and All 4 Bullions
             application.nativeParallelRefreshEngine.refreshAllParallel(
                 pincode = pincode,
                 latitude = settings.latitude,
                 longitude = settings.longitude,
-                maxPagesPerStore = 3,
+                maxPagesPerStore = ScraperConfigProvider.get().limits.defaultPagesPerRefresh,
             )
 
             // 3. Scan deals
@@ -97,26 +105,21 @@ class BackgroundRefreshWorker(
             }
 
             application.refreshActivityRepository.log(
-                com.aurum.intelligence.data.RefreshLogSeverity.Info,
+                com.aurum.intelligence.data.repository.RefreshLogSeverity.Info,
                 null,
                 "Background scan complete: $blinkDealsFound Blink Deals, $stealDealsFound Steal Deals",
             )
             
-            com.aurum.intelligence.data.DatabaseBackupManager.createBackup(application.repository, applicationContext)
+            com.aurum.intelligence.data.db.DatabaseBackupManager.createBackup(application.repository, applicationContext)
 
             Result.success()
         } catch (e: Exception) {
             application.refreshActivityRepository.log(
-                com.aurum.intelligence.data.RefreshLogSeverity.Error,
+                com.aurum.intelligence.data.repository.RefreshLogSeverity.Error,
                 null,
                 "Scheduled background refresh failed: ${e.message}",
             )
             Result.retry()
         }
-    }
-
-    private companion object {
-        const val CHANNEL_ID = "aurum_background_refresh"
-        const val NOTIFICATION_ID = 4101
     }
 }
