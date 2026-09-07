@@ -50,6 +50,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        val aurum = application as? AurumApplication ?: return
+        if (aurum.startupState.value is StartupState.Ready) {
+            DatabaseBackupManager.syncDatabasesToExternal(this, aurum.database, aurum.internalDatabase)
+        }
+    }
 }
 
 @androidx.compose.runtime.Composable

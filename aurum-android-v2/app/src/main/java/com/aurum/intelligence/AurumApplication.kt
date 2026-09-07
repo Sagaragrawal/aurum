@@ -96,7 +96,11 @@ class AurumApplication : Application() {
 
                     bullionRepository.ensureSources()
 
-                    // Always sync databases to /storage/emulated/0/aurum/ on startup
+                    // Ensure 100% 24K compliance: purge any non-24K products that may have existed from prior dirty installs
+                    database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
+                    database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")
+                    // Reconcile stale unrefreshed products to unavailable so they don't pollute NotLive
+                    database.openHelper.writableDatabase.execSQL("UPDATE products SET status = 'unavailable', deliverable = 0 WHERE status = 'stale'")
                     DatabaseBackupManager.syncDatabasesToExternal(this@AurumApplication, database, internalDatabase)
                 }.onFailure { failure ->
                     mutableStartupState.value = StartupState.Degraded(

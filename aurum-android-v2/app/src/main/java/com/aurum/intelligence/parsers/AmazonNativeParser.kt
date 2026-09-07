@@ -93,7 +93,25 @@ object AmazonNativeParser {
 
             when (val candidate = record.toProductCandidate("amazon.in", bullionRate24)) {
                 is CandidateParseResult.Valid -> candidates.add(candidate.candidate)
-                is CandidateParseResult.Rejected -> { /* Skip filtered items */ }
+                is CandidateParseResult.Rejected -> {
+                    if (unavailable) {
+                        candidates.add(
+                            ProductCandidate(
+                                store = "amazon.in",
+                                retailerId = asin,
+                                canonicalUrl = ProductIdentity.canonicalUrl(fullUrl),
+                                name = title,
+                                brand = null,
+                                price = price,
+                                couponPrice = couponPrice,
+                                grams = null,
+                                karat = 24.0,
+                                purity = "999",
+                                unavailable = true,
+                            )
+                        )
+                    }
+                }
             }
         }
 

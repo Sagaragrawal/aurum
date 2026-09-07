@@ -41,11 +41,28 @@ object MyntraNativeParser {
 
             val flags = pdpData.optJSONObject("flags")
             val availabilityStr = pdpData.optString("availability")
+            val normAvail = availabilityStr.lowercase().replace("_", "").replace("-", "").replace(" ", "")
+            val sizes = pdpData.optJSONArray("sizes")
+            val allSizesUnavailable = if (sizes != null && sizes.length() > 0) {
+                var anyAvail = false
+                for (sIdx in 0 until sizes.length()) {
+                    val sObj = sizes.optJSONObject(sIdx)
+                    if (sObj?.optBoolean("available", false) == true) {
+                        anyAvail = true
+                        break
+                    }
+                }
+                !anyAvail
+            } else false
+
             val isOutOfStock = flags?.optBoolean("outOfStock", false) == true ||
                 pdpData.optBoolean("outOfStock", false) ||
-                availabilityStr.contains("outofstock", ignoreCase = true) ||
-                availabilityStr.contains("out of stock", ignoreCase = true) ||
-                availabilityStr.contains("not_available", ignoreCase = true)
+                flags?.optBoolean("disableBuyButton", false) == true ||
+                allSizesUnavailable ||
+                normAvail.contains("outofstock") ||
+                normAvail.contains("soldout") ||
+                normAvail.contains("notavailable") ||
+                normAvail.contains("unserviceable")
 
             val landingPage = pdpData.optString("landingPageUrl").trimStart('/')
             val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
@@ -146,32 +163,20 @@ object MyntraNativeParser {
                 val brand = item.optString("brand").takeIf(String::isNotBlank)
 
                 // Price resolution: discountedPrice -> price (selling price) -> mrp (full price)
-                val price = item.optDouble("discountedPrice").takeIf { it.isFinite() && it > 0 }
+                val parsedPrice = item.optDouble("discountedPrice").takeIf { it.isFinite() && it > 0 }
                     ?: item.optDouble("price").takeIf { it.isFinite() && it > 0 }
                     ?: item.optDouble("mrp").takeIf { it.isFinite() && it > 0 }
-                    ?: continue
-
-                // Check coupon discount and bestPrice
-                val couponData = item.optJSONObject("couponData")
-                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
-                val bestPrice = couponData?.optJSONObject("couponDescription")?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
-                val couponPrice = when {
-                    bestPrice != null -> bestPrice
-                    couponDiscount != null && couponDiscount < price -> price - couponDiscount
-                    else -> null
-                }
-
-                val landingPage = item.optString("landingPageUrl").trimStart('/')
-                val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
-                val fullUrl = if (landingPage.startsWith("http")) landingPage else "$baseUrl/$landingPage"
 
                 // Check inventory & availability
                 val availabilityStr = item.optString("availability")
+                val normAvail = availabilityStr.lowercase().replace("_", "").replace("-", "").replace(" ", "")
                 val flags = item.optJSONObject("flags")
-                val isExplicitOutOfStock = availabilityStr.contains("outofstock", ignoreCase = true) ||
-                    availabilityStr.contains("out of stock", ignoreCase = true) ||
-                    availabilityStr.contains("not_available", ignoreCase = true) ||
+                val isExplicitOutOfStock = normAvail.contains("outofstock") ||
+                    normAvail.contains("soldout") ||
+                    normAvail.contains("notavailable") ||
+                    normAvail.contains("unserviceable") ||
                     flags?.optBoolean("outOfStock", false) == true ||
+                    flags?.optBoolean("disableBuyButton", false) == true ||
                     item.optBoolean("outOfStock", false)
 
                 val inventoryArray = item.optJSONArray("inventoryInfo")
@@ -192,6 +197,23 @@ object MyntraNativeParser {
                 }
 
                 val isProductUnavailable = !hasStock || isExplicitOutOfStock
+
+                if (parsedPrice == null && !isProductUnavailable) continue
+                val price = parsedPrice ?: 0.0
+
+                // Check coupon discount and bestPrice
+                val couponData = item.optJSONObject("couponData")
+                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                val bestPrice = couponData?.optJSONObject("couponDescription")?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                val couponPrice = when {
+                    bestPrice != null -> bestPrice
+                    couponDiscount != null && couponDiscount < price -> price - couponDiscount
+                    else -> null
+                }
+
+                val landingPage = item.optString("landingPageUrl").trimStart('/')
+                val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
+                val fullUrl = if (landingPage.startsWith("http")) landingPage else "$baseUrl/$landingPage"
 
                 val displayName = if (!brand.isNullOrBlank() && !name.startsWith(brand, ignoreCase = true)) {
                     "$brand $name"

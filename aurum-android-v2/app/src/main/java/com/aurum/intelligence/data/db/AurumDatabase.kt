@@ -176,6 +176,9 @@ interface AurumDao {
     @Query("UPDATE products SET status = 'out_of_stock', checkedAt = :now WHERE id = :id")
     suspend fun markOutOfStock(id: String, now: Long)
 
+    @Query("UPDATE products SET status = 'unavailable', deliverable = 0, checkedAt = :now WHERE store = :store AND checkedAt < :startedAt AND status != 'unavailable'")
+    suspend fun markUnrefreshedStoreProductsUnavailable(store: String, startedAt: Long, now: Long = System.currentTimeMillis()): Int
+
     @Query("UPDATE products SET status = 'stale' WHERE store = :store AND checkedAt < :startedAt AND status != 'unavailable'")
     suspend fun markUnrefreshedStoreProductsStale(store: String, startedAt: Long): Int
 

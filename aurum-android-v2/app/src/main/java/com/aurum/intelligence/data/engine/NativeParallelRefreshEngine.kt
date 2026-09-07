@@ -1169,6 +1169,7 @@ class NativeParallelRefreshEngine(
                 val rawName = candidate.name ?: existing?.name ?: targetRetailerId
                 val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
                 val finalTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
+                val rawPrice = if (candidate.price > 0) candidate.price else existing?.price ?: 0.0
 
                 val entity = ProductEntity(
                     id = entityId,
@@ -1180,7 +1181,7 @@ class NativeParallelRefreshEngine(
                     grams = candidate.grams ?: existing?.grams,
                     karat = candidate.karat ?: existing?.karat ?: 24.0,
                     purity = candidate.purity ?: existing?.purity ?: "999",
-                    price = candidate.price,
+                    price = rawPrice,
                     couponPrice = candidate.couponPrice,
                     status = if (isUnavailable) "unavailable" else "live",
                     refreshMethod = "$store-native-parallel",
@@ -1252,7 +1253,7 @@ class NativeParallelRefreshEngine(
         }
 
         if (unrefreshed.isEmpty()) {
-            database.dao().markUnrefreshedStoreProductsStale(store, startedAt)
+            database.dao().markUnrefreshedStoreProductsUnavailable(store, startedAt, System.currentTimeMillis())
             return PdpRefreshResult(0, 0, 0, 0)
         }
 
@@ -1401,12 +1402,12 @@ class NativeParallelRefreshEngine(
             )
         }
 
-        val demotedStale = database.dao().markUnrefreshedStoreProductsStale(store, startedAt)
-        if (demotedStale > 0) {
+        val demotedUnavailable = database.dao().markUnrefreshedStoreProductsUnavailable(store, startedAt, System.currentTimeMillis())
+        if (demotedUnavailable > 0) {
             activityRepository?.log(
                 RefreshLogSeverity.Info,
                 store,
-                "[$store] Reconciled catalogue: $demotedStale unrefreshed items marked stale"
+                "[$store] Reconciled catalogue: $demotedUnavailable unrefreshed items marked unavailable"
             )
         }
 

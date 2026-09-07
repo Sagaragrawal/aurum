@@ -111,6 +111,21 @@ object DatabaseBackupManager {
     fun syncDatabasesToExternal(context: Context, database: AurumDatabase? = null, internalDatabase: AurumInternalDatabase? = null) {
         runCatching {
             val aurumDir = getAurumDir()
+            if (!aurumDir.exists()) aurumDir.mkdirs()
+
+            // Ensure raw_pages directory exists
+            val rawDir = File(aurumDir, rawPagesDirName)
+            if (!rawDir.exists()) rawDir.mkdirs()
+
+            // Copy active config.json to external folder
+            runCatching {
+                context.assets.open("config.json").use { input ->
+                    File(aurumDir, "config.json").outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+
             database?.runCatching {
                 openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
             }
@@ -135,7 +150,7 @@ object DatabaseBackupManager {
                 val intShm = File(internalFile.parentFile, "$internalDbFileName-shm")
                 if (intShm.exists()) intShm.copyTo(File(aurumDir, "$internalDbFileName-shm"), overwrite = true)
             }
-            android.util.Log.i("DatabaseBackupManager", "Successfully synced databases to ${aurumDir.absolutePath}")
+            android.util.Log.i("DatabaseBackupManager", "Successfully synced databases and config to ${aurumDir.absolutePath}")
         }.onFailure { e ->
             android.util.Log.e("DatabaseBackupManager", "Database sync to external failed: ${e.message}", e)
         }
@@ -144,14 +159,23 @@ object DatabaseBackupManager {
     suspend fun checkAndRestoreIfNeeded(database: AurumDatabase, repository: BridgeRepository, context: Context): ArchiveImportResult? = withContext(Dispatchers.IO) {
         runCatching {
             val productCount = database.dao().productCount()
-            if (productCount > 0) return@runCatching null // Database has existing data; no restore needed
+            if (productCount > 0) {
+                // Ensure existing products are strictly 24K
+                database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
+                database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")
+                return@runCatching null
+            }
 
             val backupFile = getBackupFile(context)
             if (!backupFile.exists() || backupFile.length() == 0L) return@runCatching null
 
-            FileInputStream(backupFile).use { input ->
+            val result = FileInputStream(backupFile).use { input ->
                 repository.importArchive(input)
             }
+            // Enforce 100% 24K on restored records
+            database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
+            database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")
+            result
         }.getOrNull()
     }
 }

@@ -123,7 +123,25 @@ object FlipkartNativeParser {
 
                                     when (val parsed = record.toProductCandidate(store, bullionRate24)) {
                                         is CandidateParseResult.Valid -> candidates.add(parsed.candidate)
-                                        is CandidateParseResult.Rejected -> { /* Skip */ }
+                                        is CandidateParseResult.Rejected -> {
+                                            if (unavailable) {
+                                                candidates.add(
+                                                    ProductCandidate(
+                                                        store = store,
+                                                        retailerId = pid,
+                                                        canonicalUrl = ProductIdentity.canonicalUrl(cleanUrl),
+                                                        name = title,
+                                                        brand = brand,
+                                                        price = price,
+                                                        couponPrice = null,
+                                                        grams = null,
+                                                        karat = 24.0,
+                                                        purity = "999",
+                                                        unavailable = true,
+                                                    )
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -190,7 +208,25 @@ object FlipkartNativeParser {
 
                 when (val candidate = record.toProductCandidate(store, bullionRate24)) {
                     is CandidateParseResult.Valid -> candidates.add(candidate.candidate)
-                    is CandidateParseResult.Rejected -> { /* Skip */ }
+                    is CandidateParseResult.Rejected -> {
+                        if (unavailable) {
+                            candidates.add(
+                                ProductCandidate(
+                                    store = store,
+                                    retailerId = pid,
+                                    canonicalUrl = ProductIdentity.canonicalUrl(cleanUrl),
+                                    name = title,
+                                    brand = null,
+                                    price = price,
+                                    couponPrice = null,
+                                    grams = null,
+                                    karat = 24.0,
+                                    purity = "999",
+                                    unavailable = true,
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }

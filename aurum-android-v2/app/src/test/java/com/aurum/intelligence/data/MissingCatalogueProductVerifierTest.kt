@@ -38,4 +38,15 @@ class MissingCatalogueProductVerifierTest {
         assertTrue(flipkart is ProductLookup.Unavailable && flipkart.price == 81632.0)
         assertFalse(ProductLookup.parse("flipkart.com", 403, "Access denied") is ProductLookup.Unavailable)
     }
+
+    @Test
+    fun classifiesMyntraWindowMyxOutOfStockAsUnavailable() {
+        val html = """
+            <html>
+            <script>window.__myx = {"pdpData":{"id":31416940,"name":"Kalyan Jewellers Women 24KT 999 Purity Om Gold Coin 8gm","brand":{"name":"Kalyan Jewellers"},"price":{"mrp":146024,"discounted":146024},"flags":{"outOfStock":true},"sizes":[{"available":false}]}};</script>
+            </html>
+        """.trimIndent()
+        val result = ProductLookup.parse("myntra.com", 200, html)
+        assertTrue("Expected Unavailable, got $result", result is ProductLookup.Unavailable && result.price == 146024.0)
+    }
 }

@@ -298,6 +298,15 @@ sealed interface ProductLookup {
             "servicable: false",
             "deliverable: false",
             "isAvailable\":false",
+            "isAvailable\": false",
+            "available\":false",
+            "available\": false",
+            "\"available\":false",
+            "\"available\": false",
+            "outofstock",
+            "out_of_stock",
+            "sold_out",
+            "soldout",
             "unserviceable",
             "pincode not serviceable",
             "out of stock at pincode"
@@ -316,12 +325,16 @@ sealed interface ProductLookup {
                     body.contains("\"outOfStock\":true", ignoreCase = true) ||
                     body.contains("\"outOfStock\": true", ignoreCase = true) ||
                     body.contains("\"buyNowEnabled\":false", ignoreCase = true) ||
-                    body.contains("\"buyNowEnabled\": false", ignoreCase = true)
+                    body.contains("\"buyNowEnabled\": false", ignoreCase = true) ||
+                    body.contains("\"available\":false", ignoreCase = true) ||
+                    body.contains("\"available\": false", ignoreCase = true)
                 )) ||
                 (store == "ajio.com" && (
                     body.contains("\"purchasable\":false", ignoreCase = true) ||
                     body.contains("\"stockLevelStatus\":\"outOfStock\"", ignoreCase = true) ||
+                    body.contains("\"stockLevelStatus\": \"outOfStock\"", ignoreCase = true) ||
                     body.contains("\"outOfStock\":true", ignoreCase = true) ||
+                    body.contains("\"outOfStock\": true", ignoreCase = true) ||
                     body.contains("\"fnlColorVariantData\":null", ignoreCase = true)
                 ))
 
@@ -329,6 +342,9 @@ sealed interface ProductLookup {
                 val myxResult = com.aurum.intelligence.parsers.MyntraNativeParser.parse(body)
                 val candidate = myxResult.candidates.firstOrNull()
                 if (candidate != null) {
+                    if (candidate.unavailable || unavailable) {
+                        return Unavailable(candidate.price.takeIf { it > 0 })
+                    }
                     return Available(
                         price = candidate.price,
                         couponPrice = candidate.couponPrice,

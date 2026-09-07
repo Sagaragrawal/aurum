@@ -70,7 +70,25 @@ object AjioNativeParser {
 
             when (val parsed = record.toProductCandidate("ajio.com", bullionRate24)) {
                 is CandidateParseResult.Valid -> candidates.add(parsed.candidate)
-                is CandidateParseResult.Rejected -> { /* Skip filtered out items */ }
+                is CandidateParseResult.Rejected -> {
+                    if (isOutOfStock && derivedRetailerId != null) {
+                        candidates.add(
+                            ProductCandidate(
+                                store = "ajio.com",
+                                retailerId = derivedRetailerId,
+                                canonicalUrl = ProductIdentity.canonicalUrl(fullUrl),
+                                name = displayName,
+                                brand = brand,
+                                price = price,
+                                couponPrice = offerPrice,
+                                grams = null,
+                                karat = 24.0,
+                                purity = "999",
+                                unavailable = true,
+                            )
+                        )
+                    }
+                }
             }
         }
 

@@ -221,6 +221,33 @@ class ProductCalculationsTest {
     }
 
     @Test
+    fun outOfStockProductsMatchUnavailableAndExcludedFromNotLive() {
+        val oos1 = product("oos1", name = "Gold Coin - Out of Stock", status = "unavailable", deliverable = false)
+        val oos2 = product("oos2", name = "Gold Coin", status = "out_of_stock", deliverable = false)
+        val oos3 = product("oos3", name = "Gold Coin", status = "unavailable", deliverable = false)
+        val live = product("live", name = "Gold Coin", status = "live", deliverable = true)
+        val products = listOf(oos1, oos2, oos3, live)
+
+        val unavail = ProductCalculations.filteredAndSorted(
+            products,
+            WatchlistQuery(quickFilter = QuickFilter.Unavailable),
+            10_000.0,
+            9_000.0,
+            nowMillis = now,
+        )
+        assertEquals(listOf("oos1", "oos2", "oos3"), unavail.map { it.id })
+
+        val notLive = ProductCalculations.filteredAndSorted(
+            products,
+            WatchlistQuery(quickFilter = QuickFilter.NotLive),
+            10_000.0,
+            9_000.0,
+            nowMillis = now,
+        )
+        assertTrue("Expected no items in NotLive, got ${notLive.map { it.id }}", notLive.isEmpty())
+    }
+
+    @Test
     fun unavailableProductNeverAppearsInDealRadar() {
         val unavailable = product("unavailable", name = "Mia Coin Unavailable", price = 100.0, grams = 1.0)
         val live = product("live", price = 9_900.0, grams = 1.0)
@@ -247,6 +274,7 @@ class ProductCalculationsTest {
         couponPrice: Double? = null,
         status: String = "live",
         lastLiveAt: Long = now,
+        deliverable: Boolean = true,
     ) = ProductEntity(
         id = id,
         store = store,
@@ -263,5 +291,6 @@ class ProductCalculationsTest {
         refreshMethod = "test",
         checkedAt = lastLiveAt,
         lastLiveAt = lastLiveAt,
+        deliverable = deliverable,
     )
 }

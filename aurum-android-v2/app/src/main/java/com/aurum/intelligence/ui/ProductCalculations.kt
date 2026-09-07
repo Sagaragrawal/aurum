@@ -70,6 +70,10 @@ object ProductCalculations {
             product.name.contains("unserviceable", ignoreCase = true) ||
             product.name.contains("not deliverable", ignoreCase = true) ||
             product.name.contains("out of stock", ignoreCase = true) ||
+            product.name.contains("outofstock", ignoreCase = true) ||
+            product.name.contains("out_of_stock", ignoreCase = true) ||
+            product.name.contains("sold out", ignoreCase = true) ||
+            product.name.contains("soldout", ignoreCase = true) ||
             (product.grams != null && product.grams <= 0)
 
     fun displayName(product: ProductEntity): String = ProductAvailability.displayName(product.name)
