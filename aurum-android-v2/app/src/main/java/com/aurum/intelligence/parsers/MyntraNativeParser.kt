@@ -93,6 +93,29 @@ object MyntraNativeParser {
             val fullTextForWeight = "$displayName ${descBuilder.toString()}"
             val weight = WeightExtractor.parse(displayName, fullTextForWeight)
 
+            val articleAttrs = pdpData.optJSONObject("articleAttributes")
+            val goldPurityAttr = articleAttrs?.optString("Gold Purity")?.takeIf(String::isNotBlank)
+                ?: articleAttrs?.optString("Purity")?.takeIf(String::isNotBlank)
+                ?: articleAttrs?.optString("metal_purity_article_attr")?.takeIf(String::isNotBlank)
+
+            val fullDescText = descBuilder.toString()
+            val combinedPdpText = "$displayName $goldPurityAttr $fullDescText"
+
+            val isExplicit22K = Regex("\\b(?:22\\s*k|22\\s*kt|22kt|22-kt|916|18\\s*k|18\\s*kt|14\\s*k)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combinedPdpText)
+            val isExplicit24K = Regex("\\b(?:24\\s*k|24\\s*kt|24kt|24-kt|24\\s*karat|999|999\\.9|995)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combinedPdpText)
+
+            val resolvedKarat = when {
+                isExplicit22K -> 22.0
+                isExplicit24K -> 24.0
+                else -> null
+            }
+            val resolvedPurity = when {
+                isExplicit22K -> "916"
+                goldPurityAttr != null -> goldPurityAttr
+                isExplicit24K -> "999"
+                else -> null
+            }
+
             val record = BridgeRecord(
                 retailerId = pid,
                 url = fullUrl,
@@ -101,6 +124,8 @@ object MyntraNativeParser {
                 price = price,
                 couponPrice = null,
                 metal = "Gold",
+                karat = resolvedKarat,
+                purity = resolvedPurity,
                 grams = weight.totalWeightGrams,
                 unavailable = isOutOfStock,
             )

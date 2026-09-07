@@ -138,6 +138,9 @@ class NativeParallelRefreshEngine(
             "Completed parallel refresh: $totalValid valid gold items found in ${totalDuration}ms across all stores",
         )
 
+        // Ensure no stale products remain across any stores after full parallel refresh
+        runCatching { database.dao().markAllStaleProductsUnavailable() }
+
         // Sync databases to /storage/emulated/0/aurum immediately upon refresh completion
         context?.let { ctx ->
             DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
@@ -1168,8 +1171,16 @@ class NativeParallelRefreshEngine(
 
                 val rawName = candidate.name ?: existing?.name ?: targetRetailerId
                 val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
-                val finalTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
+                val isManual = existing?.manuallyEditedAt != null
+                val finalTitle = if (isManual && !existing?.name.isNullOrBlank()) existing.name else DatabaseSanitizerEngine.cleanTitle(rawName)
                 val rawPrice = if (candidate.price > 0) candidate.price else existing?.price ?: 0.0
+
+                val finalGrams = if (isManual && existing?.grams != null) existing.grams else (candidate.grams ?: existing?.grams)
+                val finalKarat = if (isManual && existing?.karat != null) existing.karat else (candidate.karat ?: existing?.karat ?: 24.0)
+                val finalPurity = if (isManual && !existing?.purity.isNullOrBlank()) existing.purity else (candidate.purity ?: existing?.purity ?: "999")
+                val finalUnitWeight = if (isManual) existing?.unitWeightGrams else (candidate.unitWeightGrams ?: existing?.unitWeightGrams)
+                val finalTotalWeight = if (isManual) existing?.totalWeightGrams else (candidate.totalWeightGrams ?: existing?.totalWeightGrams)
+                val finalQuantity = if (isManual && existing != null) existing.quantity else candidate.quantity
 
                 val entity = ProductEntity(
                     id = entityId,
@@ -1178,9 +1189,9 @@ class NativeParallelRefreshEngine(
                     canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
                     name = finalTitle,
                     brand = candidate.brand ?: existing?.brand,
-                    grams = candidate.grams ?: existing?.grams,
-                    karat = candidate.karat ?: existing?.karat ?: 24.0,
-                    purity = candidate.purity ?: existing?.purity ?: "999",
+                    grams = finalGrams,
+                    karat = finalKarat,
+                    purity = finalPurity,
                     price = rawPrice,
                     couponPrice = candidate.couponPrice,
                     status = if (isUnavailable) "unavailable" else "live",
@@ -1188,9 +1199,9 @@ class NativeParallelRefreshEngine(
                     checkedAt = now,
                     lastLiveAt = if (!isUnavailable) now else existing?.lastLiveAt ?: 0,
                     manuallyEditedAt = existing?.manuallyEditedAt,
-                    unitWeightGrams = candidate.unitWeightGrams ?: existing?.unitWeightGrams,
-                    quantity = candidate.quantity,
-                    totalWeightGrams = candidate.totalWeightGrams ?: existing?.totalWeightGrams,
+                    unitWeightGrams = finalUnitWeight,
+                    quantity = finalQuantity,
+                    totalWeightGrams = finalTotalWeight,
                     weightConfidence = candidate.weightConfidence,
                     pincode = pincode ?: existing?.pincode,
                     latitude = existing?.latitude,
@@ -1247,13 +1258,11 @@ class NativeParallelRefreshEngine(
     ): PdpRefreshResult {
         val config = ScraperConfigProvider.get()
         val unrefreshed = database.dao().allProducts().filter { p ->
-            p.store == store &&
-                p.checkedAt < startedAt &&
-                p.status != "unavailable"
+            p.store == store && p.status == "stale"
         }
 
         if (unrefreshed.isEmpty()) {
-            database.dao().markUnrefreshedStoreProductsUnavailable(store, startedAt, System.currentTimeMillis())
+            database.dao().markStoreStaleProductsUnavailable(store)
             return PdpRefreshResult(0, 0, 0, 0)
         }
 
@@ -1334,30 +1343,32 @@ class NativeParallelRefreshEngine(
                                 val now = System.currentTimeMillis()
                                 when (val lookup = ProductLookup.parse(store, response.status, response.body, endpoint)) {
                                     is ProductLookup.Available -> {
+                                        val isManual = product.manuallyEditedAt != null
+                                        val targetGrams = if (isManual && product.grams != null) product.grams else (lookup.grams ?: product.grams)
                                         val validation = Product24KValidator.validate(
-                                            name = lookup.name ?: product.name,
+                                            name = if (isManual) product.name else (lookup.name ?: product.name),
                                             store = store,
                                             karat = product.karat,
                                             purity = product.purity,
                                             price = lookup.price,
-                                            grams = lookup.grams ?: product.grams,
+                                            grams = targetGrams,
                                             brand = lookup.brand ?: product.brand,
                                             canonicalUrl = product.canonicalUrl,
                                             retailerId = product.retailerId,
                                         )
-                                        if (!validation.isValid) {
+                                        if (!validation.isValid && !isManual) {
                                             database.dao().deleteProduct(product.id)
                                             return@async
                                         }
                                         val updatedProduct = product.copy(
-                                            name = validation.normalizedTitle,
-                                            karat = validation.normalizedKarat,
-                                            purity = validation.normalizedPurity,
+                                            name = if (isManual) product.name else validation.normalizedTitle,
+                                            karat = if (isManual && product.karat != null) product.karat else validation.normalizedKarat,
+                                            purity = if (isManual && !product.purity.isNullOrBlank()) product.purity else validation.normalizedPurity,
                                             brand = lookup.brand ?: product.brand,
                                             price = lookup.price,
                                             couponPrice = lookup.couponPrice ?: product.couponPrice,
-                                            grams = lookup.grams ?: product.grams,
-                                            weightConfidence = lookup.weightConfidence,
+                                            grams = targetGrams,
+                                            weightConfidence = if (isManual) product.weightConfidence else lookup.weightConfidence,
                                             status = "live",
                                             refreshMethod = lookup.refreshMethod,
                                             checkedAt = now,
@@ -1381,11 +1392,28 @@ class NativeParallelRefreshEngine(
                                         pdpUnavailable++
                                     }
                                     ProductLookup.Unknown -> {
-                                        pdpFailed++
+                                        database.dao().upsertProduct(
+                                            product.copy(
+                                                status = "unavailable",
+                                                deliverable = false,
+                                                checkedAt = now,
+                                            )
+                                        )
+                                        pdpUnavailable++
                                     }
                                 }
                             } catch (e: Exception) {
                                 pdpFailed++
+                                runCatching {
+                                    database.dao().upsertProduct(
+                                        product.copy(
+                                            status = "unavailable",
+                                            deliverable = false,
+                                            checkedAt = System.currentTimeMillis(),
+                                        )
+                                    )
+                                    pdpUnavailable++
+                                }
                                 Log.w(tag, "PDP verification error for ${product.retailerId}: ${e.message}")
                             }
                         }
@@ -1402,12 +1430,12 @@ class NativeParallelRefreshEngine(
             )
         }
 
-        val demotedUnavailable = database.dao().markUnrefreshedStoreProductsUnavailable(store, startedAt, System.currentTimeMillis())
+        val demotedUnavailable = database.dao().markStoreStaleProductsUnavailable(store)
         if (demotedUnavailable > 0) {
             activityRepository?.log(
                 RefreshLogSeverity.Info,
                 store,
-                "[$store] Reconciled catalogue: $demotedUnavailable unrefreshed items marked unavailable"
+                "[$store] Reconciled catalogue: $demotedUnavailable stale items marked unavailable"
             )
         }
 

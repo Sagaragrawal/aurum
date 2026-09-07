@@ -24,17 +24,17 @@ object WeightExtractor {
         val sanitizedTitle = sanitizeText(title)
         val sanitizedBody = body?.let(::sanitizeText).orEmpty()
 
-        // STEP 1: Check explicit specification key-values in body/JSON first
-        val specWeight = parseSpecificationTable(sanitizedBody)
-        if (specWeight != null) return specWeight
-
-        // STEP 2: Check multi-coin pack & addition expressions in body/PDP text first if present
+        // STEP 1: Check multi-coin pack & addition expressions in body/PDP text first if present
         if (sanitizedBody.isNotBlank()) {
             val bodyPackWeight = parseMultiPackExpression(sanitizedBody)
             if (bodyPackWeight != null && bodyPackWeight.quantity > 1) {
                 return bodyPackWeight.copy(source = WeightSource.SpecificationTable)
             }
         }
+
+        // STEP 2: Check explicit specification key-values in body/JSON
+        val specWeight = parseSpecificationTable(sanitizedBody)
+        if (specWeight != null) return specWeight
 
         // STEP 3: Check multi-coin pack & addition expressions in title
         val packWeight = parseMultiPackExpression(sanitizedTitle)
@@ -98,8 +98,11 @@ object WeightExtractor {
     }
 
     private fun parseMultiPackExpression(title: String): ProductWeight? {
-        // Pattern 1: "1g x 2", "1 gram x 2", "0.5g * 2"
-        val multiplierRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)\\s*[x*×]\\s*(\\d+)\\b", RegexOption.IGNORE_CASE)
+        // Pattern 1: "1g x 2", "1 gram x 2", "0.5g * 2", "1gm each x 5 Pcs", "2gm each x 2"
+        val multiplierRegex = Regex(
+            "(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)(?:\\s+(?:each|per\\s*(?:coin|bar|pc|piece)|a\\s*piece|pc|pcs|piece|coins?|bars?|pendant))?\\s*[x*×]\\s*(\\d+)\\b",
+            RegexOption.IGNORE_CASE
+        )
         val m1 = multiplierRegex.find(title)
         if (m1 != null) {
             val amount = m1.groupValues[1].toDoubleOrNull()
@@ -139,22 +142,34 @@ object WeightExtractor {
         }
 
         // Pattern 3: "10 + 10 g", "10g + 10g", "0.5 Gm + 1 Gm + 2 Gm"
-        val additionRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?\\s*\\+\\s*(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?(?:\\s*\\+\\s*(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?)?", RegexOption.IGNORE_CASE)
+        val additionRegex = Regex(
+            "(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?(?:\\s*\\+\\s*(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?)+",
+            RegexOption.IGNORE_CASE
+        )
         val m3 = additionRegex.find(title)
         if (m3 != null) {
             val matchedText = m3.value
-            val units = Regex("(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE).findAll(matchedText).map { it.value.lowercase() }.toList()
-            val trailUnitMatch = Regex("^[\\s)]*(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE).find(title.substring((m3.range.last + 1).coerceAtMost(title.length)))
-            val unit = trailUnitMatch?.groupValues?.get(1)?.lowercase() ?: units.lastOrNull() ?: "g"
-            val numbers = Regex("\\b\\d+(?:\\.\\d+)?").findAll(matchedText).mapNotNull { it.value.toDoubleOrNull() }.toList()
-            if (numbers.size >= 2) {
-                val converted = numbers.map { if (unit == "mg") it / 1000.0 else it }
-                val totalGrams = converted.sum()
-                val unitGrams = converted.first()
+            val itemRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(mg|gms|gm|grams|gram|g)?", RegexOption.IGNORE_CASE)
+            val matches = itemRegex.findAll(matchedText).toList()
+            if (matches.size >= 2) {
+                val trailUnitMatch = Regex("^[\\s)]*(mg|gms|gm|grams|gram|g)\\b", RegexOption.IGNORE_CASE)
+                    .find(title.substring((m3.range.last + 1).coerceAtMost(title.length)))
+                val fallbackUnit = trailUnitMatch?.groupValues?.get(1)?.lowercase()
+                    ?: matches.mapNotNull { it.groupValues[2].takeIf(String::isNotBlank)?.lowercase() }.lastOrNull()
+                    ?: "g"
+                var totalGrams = 0.0
+                var firstUnitGrams: Double? = null
+                for (match in matches) {
+                    val amt = match.groupValues[1].toDoubleOrNull() ?: continue
+                    val u = match.groupValues[2].takeIf(String::isNotBlank)?.lowercase() ?: fallbackUnit
+                    val g = if (u == "mg") amt / 1000.0 else amt
+                    totalGrams += g
+                    if (firstUnitGrams == null) firstUnitGrams = g
+                }
                 if (totalGrams in 0.005..500.0) {
                     return ProductWeight(
-                        unitWeightGrams = unitGrams,
-                        quantity = numbers.size,
+                        unitWeightGrams = firstUnitGrams ?: (totalGrams / matches.size),
+                        quantity = matches.size,
                         totalWeightGrams = totalGrams,
                         confidence = WeightConfidence.High,
                         source = WeightSource.TitleExpression,

@@ -74,6 +74,8 @@ class WatchlistRepository(
             price = edits.price,
             couponPrice = edits.couponPrice,
             manuallyEditedAt = now,
+            unitWeightGrams = edits.grams?.let { if (existing.quantity > 1) it / existing.quantity else it } ?: existing.unitWeightGrams,
+            totalWeightGrams = edits.grams ?: existing.totalWeightGrams,
         )
         transaction {
             dataSource.upsertProduct(updated)

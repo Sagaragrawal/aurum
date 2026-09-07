@@ -188,6 +188,12 @@ interface AurumDao {
     @Query("UPDATE products SET status = 'stale'")
     suspend fun markAllProductsStale(): Int
 
+    @Query("UPDATE products SET status = 'unavailable', deliverable = 0, checkedAt = :now WHERE store = :store AND status = 'stale'")
+    suspend fun markStoreStaleProductsUnavailable(store: String, now: Long = System.currentTimeMillis()): Int
+
+    @Query("UPDATE products SET status = 'unavailable', deliverable = 0, checkedAt = :now WHERE status = 'stale'")
+    suspend fun markAllStaleProductsUnavailable(now: Long = System.currentTimeMillis()): Int
+
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
     suspend fun productById(id: String): ProductEntity?
 

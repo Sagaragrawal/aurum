@@ -50,6 +50,31 @@ class WeightExtractorTest {
         assertEquals(0.5, w4.unitWeightGrams!!, 0.001)
         assertEquals(5, w4.quantity)
         assertEquals(2.5, w4.totalWeightGrams!!, 0.001)
+
+        val w5 = WeightExtractor.parse("Muthoot Pappachan 24K 999 Purity 2g Lakshmi Gold Coin Pendant- 5 Gm (1gm each x 5 Pcs)")
+        assertEquals(1.0, w5.unitWeightGrams!!, 0.001)
+        assertEquals(5, w5.quantity)
+        assertEquals(5.0, w5.totalWeightGrams!!, 0.001)
+
+        val w6 = WeightExtractor.parse("Muthoot Pappachan 24K 999 Purity 4g Lakshmi Gold Coin Pendant- 4 Gm (2gm each x 2 Pcs)")
+        assertEquals(2.0, w6.unitWeightGrams!!, 0.001)
+        assertEquals(2, w6.quantity)
+        assertEquals(4.0, w6.totalWeightGrams!!, 0.001)
+
+        val w7 = WeightExtractor.parse("Muthoot Pappachan 24K 999 Purity 4 g Lakshmi & Ganesh Gold Coin Pendant-4 Gm (2gm each x2 Pcs)")
+        assertEquals(2.0, w7.unitWeightGrams!!, 0.001)
+        assertEquals(2, w7.quantity)
+        assertEquals(4.0, w7.totalWeightGrams!!, 0.001)
+
+        val w8 = WeightExtractor.parse("Muthoot Pappachan 24K Gold Coin 3.5 Gm (0.5 Gm + 1 Gm + 2 Gm)")
+        assertEquals(0.5, w8.unitWeightGrams!!, 0.001)
+        assertEquals(3, w8.quantity)
+        assertEquals(3.5, w8.totalWeightGrams!!, 0.001)
+
+        val w9 = WeightExtractor.parse("0.5 Gm + 1 Gm+ 2 Gm 24K (999) Set of 3 Yellow Gold Swarnavarsham Coins")
+        assertEquals(0.5, w9.unitWeightGrams!!, 0.001)
+        assertEquals(3, w9.quantity)
+        assertEquals(3.5, w9.totalWeightGrams!!, 0.001)
     }
 
     @Test

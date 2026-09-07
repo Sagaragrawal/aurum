@@ -126,10 +126,13 @@ object DatabaseSanitizerEngine {
                 price = product.price,
                 grams = product.grams,
             )
+            val isManual = product.manuallyEditedAt != null
             if (!validation.isValid) {
-                database.dao().deleteProduct(product.id)
-                deletedCount++
-            } else if (validation.normalizedTitle != product.name || validation.normalizedKarat != product.karat || validation.normalizedPurity != product.purity) {
+                if (!isManual) {
+                    database.dao().deleteProduct(product.id)
+                    deletedCount++
+                }
+            } else if (!isManual && (validation.normalizedTitle != product.name || validation.normalizedKarat != product.karat || validation.normalizedPurity != product.purity)) {
                 database.dao().upsertProduct(
                     product.copy(
                         name = validation.normalizedTitle,
