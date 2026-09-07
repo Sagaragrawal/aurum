@@ -212,7 +212,7 @@ object MyntraNativeParser {
                     brand = brand,
                     price = price,
                     couponPrice = couponPrice,
-                    metal = metalAttr ?: "Gold",
+                    metal = metalAttr,
                     purity = purityAttr,
                     unavailable = isProductUnavailable,
                 )
