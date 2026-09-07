@@ -183,8 +183,8 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
                 val vResult = Product24KValidator.validate(
                     name = result.name ?: product.name,
                     brand = result.brand ?: product.brand,
-                    karat = product.karat ?: 24.0,
-                    purity = product.purity,
+                    karat = result.karat ?: product.karat ?: 24.0,
+                    purity = result.purity ?: product.purity,
                     grams = result.grams ?: product.grams,
                     price = result.price,
                     canonicalUrl = product.canonicalUrl,
@@ -222,6 +222,10 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
                 checkedAt = System.currentTimeMillis(),
                 deliverable = false,
             ))
+            is ProductLookup.RejectedNon24K -> {
+                database.dao().deleteProductHistory(product.id)
+                database.dao().deleteProduct(product.id)
+            }
             ProductLookup.Unknown -> Unit
         }
     }
@@ -274,9 +278,12 @@ sealed interface ProductLookup {
         val refreshMethod: String,
         val isBlinkDeal: Boolean = false,
         val blinkDealPrice: Double? = null,
+        val karat: Double? = null,
+        val purity: String? = null,
     ) : ProductLookup
 
     data class Unavailable(val price: Double? = null) : ProductLookup
+    data object RejectedNon24K : ProductLookup
     data object Unknown : ProductLookup
 
     companion object {
@@ -354,8 +361,12 @@ sealed interface ProductLookup {
                         weightConfidence = candidate.weightConfidence,
                         refreshMethod = "myntra.com-web-page",
                         isBlinkDeal = candidate.isBlinkDeal,
-                        blinkDealPrice = candidate.blinkDealPrice
+                        blinkDealPrice = candidate.blinkDealPrice,
+                        karat = candidate.karat,
+                        purity = candidate.purity,
                     )
+                } else {
+                    return RejectedNon24K
                 }
             }
 

@@ -209,7 +209,7 @@ interface AurumDao {
             "OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 0.995 AND CAST(purity AS REAL) < 1.0) " +
             "OR name LIKE '%22K%' OR name LIKE '%22 K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%' " +
             "OR name LIKE '%916%' OR name LIKE '%18K%' OR name LIKE '%14K%' OR price <= 0 " +
-            "OR (name LIKE '%silver%' AND name NOT LIKE '%gold%') " +
+            "OR name LIKE '%silver%' OR name LIKE '%chandi%' OR name LIKE '%sterling%' " +
             "OR (name LIKE '%platinum%' AND name NOT LIKE '%gold%') " +
             "OR name LIKE '%idol%' OR name LIKE '%diya%' OR name LIKE '%kalash%' OR name LIKE '%utensil%' OR name LIKE '%vessel%' " +
             "OR name LIKE '%acrylic base%' " +

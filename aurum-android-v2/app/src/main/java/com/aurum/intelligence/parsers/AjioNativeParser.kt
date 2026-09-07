@@ -1,4 +1,5 @@
 package com.aurum.intelligence.parsers
+
 import com.aurum.intelligence.data.db.*
 import com.aurum.intelligence.data.engine.*
 import com.aurum.intelligence.data.model.*
@@ -15,6 +16,8 @@ object AjioNativeParser {
         val totalPages: Int,
         val currentPage: Int,
     )
+
+    private val SILVER_REGEX = Regex("""\b(?:silver|chandi|sterling|silverware|silverspot)\b""", RegexOption.IGNORE_CASE)
 
     fun parse(jsonString: String, bullionRate24: Double? = null): ParseResult {
         val root = runCatching { JSONObject(jsonString) }.getOrNull()
@@ -45,6 +48,22 @@ object AjioNativeParser {
 
             val brand = item.optJSONObject("fnlColorVariantData")?.optString("brandName")
                 ?.takeIf(String::isNotBlank) ?: item.optString("brandName").takeIf(String::isNotBlank)
+
+            val vertical = item.optString("verticalNameText").ifBlank { item.optString("verticalName") }
+            val brick = item.optString("brickNameText").ifBlank { item.optString("brickName") }
+            val segment = item.optString("segmentNameText").ifBlank { item.optString("segmentName") }
+            val catalog = item.optString("catalogName")
+            val brandType = item.optString("brandTypeName")
+            val fnlProductData = item.optJSONObject("fnlProductData")
+            val desc = fnlProductData?.optString("description") ?: item.optString("description")
+
+            // Strict check across all available product metadata fields for silver
+            val combinedMetadata = "$name $desc $vertical $brick $segment $catalog $brandType"
+            if (SILVER_REGEX.containsMatchIn(combinedMetadata)) {
+                // Reject/skip silver products immediately
+                continue
+            }
+
             val displayName = if (!brand.isNullOrBlank() && !name.startsWith(brand, ignoreCase = true)) {
                 "$brand $name"
             } else name
@@ -57,6 +76,8 @@ object AjioNativeParser {
                 ?: item.optDouble("promoDiscountedPrice").takeIf { it.isFinite() && it > 0 && it < price }
                 ?: item.optDouble("discountedPrice").takeIf { it.isFinite() && it > 0 && it < price }
 
+            val inferredMetal = if (combinedMetadata.contains("gold", ignoreCase = true)) "Gold" else null
+
             val record = BridgeRecord(
                 retailerId = derivedRetailerId,
                 url = fullUrl,
@@ -64,7 +85,7 @@ object AjioNativeParser {
                 brand = brand,
                 price = price,
                 couponPrice = offerPrice,
-                metal = "Gold",
+                metal = inferredMetal,
                 unavailable = isOutOfStock,
             )
 
@@ -111,3 +132,4 @@ object AjioNativeParser {
         return newCandidates
     }
 }
+

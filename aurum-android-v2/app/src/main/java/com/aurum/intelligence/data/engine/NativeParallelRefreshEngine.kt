@@ -1171,16 +1171,48 @@ class NativeParallelRefreshEngine(
 
                 val rawName = candidate.name ?: existing?.name ?: targetRetailerId
                 val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
-                val isManual = existing?.manuallyEditedAt != null
-                val finalTitle = if (isManual && !existing?.name.isNullOrBlank()) existing.name else DatabaseSanitizerEngine.cleanTitle(rawName)
+                val isManual = (existing?.manuallyEditedAt ?: 0L) > 1788800000000L
                 val rawPrice = if (candidate.price > 0) candidate.price else existing?.price ?: 0.0
 
-                val finalGrams = if (isManual && existing?.grams != null) existing.grams else (candidate.grams ?: existing?.grams)
-                val finalKarat = if (isManual && existing?.karat != null) existing.karat else (candidate.karat ?: existing?.karat ?: 24.0)
-                val finalPurity = if (isManual && !existing?.purity.isNullOrBlank()) existing.purity else (candidate.purity ?: existing?.purity ?: "999")
+                val rawGrams = if (isManual && existing?.grams != null) existing.grams else (candidate.grams ?: existing?.grams)
+                val rawKarat = candidate.karat ?: (if (isManual) existing?.karat else null)
+                val rawPurity = candidate.purity ?: (if (isManual) existing?.purity else null)
+
+                var normalizedKarat = 24.0
+                var normalizedPurity = "999"
+                var normalizedTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
+
+                if (!isManual) {
+                    val validation = Product24KValidator.validate(
+                        name = rawName,
+                        store = targetStore,
+                        karat = rawKarat,
+                        purity = rawPurity,
+                        price = rawPrice,
+                        grams = rawGrams,
+                        brand = candidate.brand ?: existing?.brand,
+                        canonicalUrl = candidate.canonicalUrl,
+                        retailerId = targetRetailerId,
+                    )
+                    if (!validation.isValid) {
+                        if (existing != null) {
+                            database.dao().deleteProduct(existing.id)
+                        }
+                        continue
+                    }
+                    normalizedKarat = validation.normalizedKarat
+                    normalizedPurity = validation.normalizedPurity
+                    normalizedTitle = validation.normalizedTitle
+                }
+
+                val finalTitle = if (isManual && !existing?.name.isNullOrBlank()) existing.name else normalizedTitle
+                val finalGrams = rawGrams
+                val finalKarat = if (isManual && existing?.karat != null) existing.karat else normalizedKarat
+                val finalPurity = if (isManual && !existing?.purity.isNullOrBlank()) existing.purity else normalizedPurity
                 val finalUnitWeight = if (isManual) existing?.unitWeightGrams else (candidate.unitWeightGrams ?: existing?.unitWeightGrams)
                 val finalTotalWeight = if (isManual) existing?.totalWeightGrams else (candidate.totalWeightGrams ?: existing?.totalWeightGrams)
                 val finalQuantity = if (isManual && existing != null) existing.quantity else candidate.quantity
+                val finalManual = if (isManual) existing?.manuallyEditedAt else null
 
                 val entity = ProductEntity(
                     id = entityId,
@@ -1198,7 +1230,7 @@ class NativeParallelRefreshEngine(
                     refreshMethod = "$store-native-parallel",
                     checkedAt = now,
                     lastLiveAt = if (!isUnavailable) now else existing?.lastLiveAt ?: 0,
-                    manuallyEditedAt = existing?.manuallyEditedAt,
+                    manuallyEditedAt = finalManual,
                     unitWeightGrams = finalUnitWeight,
                     quantity = finalQuantity,
                     totalWeightGrams = finalTotalWeight,
@@ -1343,13 +1375,13 @@ class NativeParallelRefreshEngine(
                                 val now = System.currentTimeMillis()
                                 when (val lookup = ProductLookup.parse(store, response.status, response.body, endpoint)) {
                                     is ProductLookup.Available -> {
-                                        val isManual = product.manuallyEditedAt != null
+                                        val isManual = (product.manuallyEditedAt ?: 0L) > 1788800000000L
                                         val targetGrams = if (isManual && product.grams != null) product.grams else (lookup.grams ?: product.grams)
                                         val validation = Product24KValidator.validate(
                                             name = if (isManual) product.name else (lookup.name ?: product.name),
                                             store = store,
-                                            karat = product.karat,
-                                            purity = product.purity,
+                                            karat = lookup.karat ?: (if (isManual) product.karat else null),
+                                            purity = lookup.purity ?: (if (isManual) product.purity else null),
                                             price = lookup.price,
                                             grams = targetGrams,
                                             brand = lookup.brand ?: product.brand,
@@ -1368,6 +1400,8 @@ class NativeParallelRefreshEngine(
                                             price = lookup.price,
                                             couponPrice = lookup.couponPrice ?: product.couponPrice,
                                             grams = targetGrams,
+                                            unitWeightGrams = if (isManual) product.unitWeightGrams else lookup.grams,
+                                            totalWeightGrams = targetGrams,
                                             weightConfidence = if (isManual) product.weightConfidence else lookup.weightConfidence,
                                             status = "live",
                                             refreshMethod = lookup.refreshMethod,
@@ -1376,6 +1410,7 @@ class NativeParallelRefreshEngine(
                                             deliverable = true,
                                             isBlinkDeal = lookup.isBlinkDeal,
                                             blinkDealPrice = lookup.blinkDealPrice ?: product.blinkDealPrice,
+                                            manuallyEditedAt = if (isManual) product.manuallyEditedAt else null,
                                         )
                                         database.dao().upsertProduct(updatedProduct)
                                         pdpUpdated++
@@ -1391,15 +1426,11 @@ class NativeParallelRefreshEngine(
                                         )
                                         pdpUnavailable++
                                     }
+                                    is ProductLookup.RejectedNon24K -> {
+                                        database.dao().deleteProduct(product.id)
+                                    }
                                     ProductLookup.Unknown -> {
-                                        database.dao().upsertProduct(
-                                            product.copy(
-                                                status = "unavailable",
-                                                deliverable = false,
-                                                checkedAt = now,
-                                            )
-                                        )
-                                        pdpUnavailable++
+                                        pdpFailed++
                                     }
                                 }
                             } catch (e: Exception) {

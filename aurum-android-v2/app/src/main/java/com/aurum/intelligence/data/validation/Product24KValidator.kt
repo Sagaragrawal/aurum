@@ -85,11 +85,7 @@ object Product24KValidator {
         }
 
         // 3. Reject non-gold and accessories
-        val titleForMetalCheck = trimmedName
-            .replace("Malabar Gold & Diamonds", "Malabar Gold", ignoreCase = true)
-            .replace("Malabar Gold and Diamonds", "Malabar Gold", ignoreCase = true)
-
-        if (NON_GOLD_PATTERN.matcher(titleForMetalCheck).find()) {
+        if (NON_GOLD_PATTERN.matcher(trimmedName).find()) {
             return ValidationResult(isValid = false, rejectionReason = "Non-gold metal, accessory, or souvenir detected")
         }
 

@@ -79,6 +79,10 @@ data class BridgeRecord(
         if (Regex("\\b(?:22\\s*[kK]|22\\s*Kt|22Kt|22\\s*Karat|916|18\\s*[kK]|14\\s*[kK]|750|585)\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalizedName.orEmpty())) {
             return CandidateParseResult.Rejected("non_24k_title")
         }
+        val combinedMeta = "${metal.orEmpty()} ${purity.orEmpty()} $acceptedUrl"
+        if (Regex("\\b(?:22\\s*[-_]?\\s*[kK]|22\\s*[-_]?\\s*Kt|22Kt|22\\s*Karat|916|18\\s*[-_]?\\s*[kK]|14\\s*[-_]?\\s*[kK]|750|585)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combinedMeta)) {
+            return CandidateParseResult.Rejected("non_24k_metadata")
+        }
         if (!normalizedName.isNullOrBlank()) {
             if (!Regex("\\b(?:gold|au|coin|bar|kundan|refinery|mmtc|pamp)\\b", RegexOption.IGNORE_CASE).containsMatchIn(normalizedName)) {
                 if (metal.isNullOrBlank() || !metal.contains("gold", ignoreCase = true)) {

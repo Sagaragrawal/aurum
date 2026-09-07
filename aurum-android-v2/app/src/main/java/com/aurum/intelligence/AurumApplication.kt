@@ -96,9 +96,16 @@ class AurumApplication : Application() {
 
                     bullionRepository.ensureSources()
 
+                    // Clear any old dummy manual timestamps (< 1788800000000) so multi-pack weights can update properly
+                    database.openHelper.writableDatabase.execSQL("UPDATE products SET manuallyEditedAt = NULL WHERE manuallyEditedAt IS NOT NULL AND manuallyEditedAt < 1788800000000")
+
                     // Ensure 100% 24K compliance: purge any non-24K products that may have existed from prior dirty installs
                     database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
                     database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")
+
+                    // Run sanitizer to purge any non-gold/22K products
+                    DatabaseSanitizerEngine.purgeNon24KGoldCoinsAndBars(database)
+
                     // Reconcile stale unrefreshed products to unavailable so they don't pollute NotLive
                     database.openHelper.writableDatabase.execSQL("UPDATE products SET status = 'unavailable', deliverable = 0 WHERE status = 'stale'")
                     DatabaseBackupManager.syncDatabasesToExternal(this@AurumApplication, database, internalDatabase)

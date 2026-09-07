@@ -61,44 +61,42 @@ object DatabaseSanitizerEngine {
     fun isNonGold(title: String, extraText: String? = null): Boolean {
         val combined = "$title ${extraText.orEmpty()}".lowercase()
 
-        // 1. Explicit silver keywords
-        if (Regex("\\b(?:silver\\s*coin|silver\\s*bar|silver\\s*pendant|fine\\s*silver|sterling\\s*silver|999\\s*silver|999\\.9\\s*silver|silver\\s*999|9999\\s*silver|chandi|silver\\s*biscuit|silver\\s*round)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (!Regex("\\bgold\\s*coin\\b|\\bgold\\s*bar\\b|\\b24\\s*k\\s*gold\\b|\\b22\\s*k\\s*gold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-                return true
-            }
+        // 1. Explicit silver keywords - if silver/chandi/sterling/silverware/silverspot is present in metal/title/description, it IS silver
+        if (Regex("""\b(?:silver|chandi|sterling|silverware|silverspot)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            return true
         }
+
         // 2. Explicit platinum keywords
-        if (Regex("\\b(?:platinum\\s*coin|platinum\\s*bar|platinum\\s*pendant|pt\\s*950|pt950|pt\\s*999|pt999|950\\s*platinum|999\\s*platinum)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (!Regex("\\bgold\\s*coin\\b|\\bgold\\s*bar\\b|\\b24\\s*k\\s*gold\\b|\\b22\\s*k\\s*gold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\b(?:platinum\s*coin|platinum\s*bar|platinum\s*pendant|pt\s*950|pt950|pt\s*999|pt999|950\s*platinum|999\s*platinum|platinum)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (!Regex("""\bgold\s*coin\b|\bgold\s*bar\b|\b24\s*k\s*gold\b|\b22\s*k\s*gold\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
                 return true
             }
         }
         // 3. Plated / imitation / base metals
-        if (Regex("\\b(?:gold[- ]?plated|gold tone|gold coated|gold colour|gold color|vermeil|imitation|brass|copper|steel|alloy|base metal)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\b(?:gold[- ]?plated|gold tone|gold coated|gold colour|gold color|vermeil|imitation|brass|copper|steel|alloy|base metal)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
             return true
         }
         // 4. Spec metal type
-        if (Regex("\\bmetal\\s*(?:type)?\\s*:\\s*(?:silver|platinum|brass|copper|steel)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\bmetal\s*(?:type)?\s*:\s*(?:silver|platinum|brass|copper|steel)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
             return true
         }
-        // 5. If title has "silver", "platinum", or "chandi" but no mention of "gold" at all:
         // 5. Idols, utensils, diyas, kalash, decorative items without coin/bar
-        if (Regex("\\b(?:idol|idols|diya|diyas|kalash|utensil|utensils|vessel|vessels|acrylic\\s*base)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (!Regex("\\b(?:coin|bar)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined) || !Regex("\\bgold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\b(?:idol|idols|diya|diyas|kalash|utensil|utensils|vessel|vessels|acrylic\s*base)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (!Regex("""\b(?:coin|bar)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined) || !Regex("""\bgold\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
                 return true
             }
         }
         // 6. Non-bullion jewelry (nose pins, earrings, rings, necklaces, chains, bangles, mangalsutras, bracelets)
-        if (Regex("\\b(?:nose\\s*pin|earring|earrings|ring|rings|necklace|necklaces|chain|chains|bangle|bangles|mangalsutra|bracelet|anklet)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\b(?:nose\s*pin|earring|earrings|ring|rings|necklace|necklaces|chain|chains|bangle|bangles|mangalsutra|bracelet|anklet)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
             val isCoinPendant = combined.contains("pendant") && (combined.contains("coin") || combined.contains("bar") || combined.contains("24") || combined.contains("999") || combined.contains("995"))
             val isVedhaniRing = (combined.contains("ring") || combined.contains("vedhani")) && (combined.contains("vedhani") || combined.contains("995") || combined.contains("999") || combined.contains("24"))
-            if (!Regex("\\b(?:coin|bar|vedhani)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined) && !isCoinPendant && !isVedhaniRing) {
+            if (!Regex("""\b(?:coin|bar|vedhani)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined) && !isCoinPendant && !isVedhaniRing) {
                 return true
             }
         }
-        // 7. If title has "silver", "platinum", or "chandi" but no mention of "gold" at all:
-        if (!Regex("\\bgold\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
-            if (Regex("\\b(?:silver|platinum|chandi|silverspot)\\b", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        // 7. If title has no mention of gold keyword at all
+        if (!Regex("""\bgold\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+            if (Regex("""\b(?:silver|platinum|chandi|silverspot)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
                 return true
             }
         }

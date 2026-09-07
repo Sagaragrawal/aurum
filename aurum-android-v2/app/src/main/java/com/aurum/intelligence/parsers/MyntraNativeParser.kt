@@ -244,6 +244,19 @@ object MyntraNativeParser {
                     "$brand $name"
                 } else name
 
+                val additionalInfo = item.optString("additionalInfo")
+                val imagesArray = item.optJSONArray("images")
+                val imageSrcBuilder = StringBuilder()
+                if (imagesArray != null) {
+                    for (imgIdx in 0 until imagesArray.length()) {
+                        val imgObj = imagesArray.optJSONObject(imgIdx)
+                        val src = imgObj?.optString("src")
+                        if (!src.isNullOrBlank()) {
+                            imageSrcBuilder.append(" ").append(src)
+                        }
+                    }
+                }
+
                 val articleAttrs = item.optJSONObject("articleAttributes")
                 val metalAttr = articleAttrs?.optString("metal_article_attr")?.takeIf(String::isNotBlank)
                     ?: articleAttrs?.optString("Metal")?.takeIf(String::isNotBlank)
@@ -251,6 +264,25 @@ object MyntraNativeParser {
 
                 val purityAttr = articleAttrs?.optString("metal_purity_article_attr")?.takeIf(String::isNotBlank)
                     ?: articleAttrs?.optString("Purity")?.takeIf(String::isNotBlank)
+
+                val plpText = "$displayName $additionalInfo $landingPage $purityAttr $imageSrcBuilder"
+
+                val isExplicit22K = Regex("\\b(?:22\\s*k|22\\s*kt|22kt|22-kt|916|18\\s*k|18\\s*kt|14\\s*k)\\b", RegexOption.IGNORE_CASE).containsMatchIn(plpText)
+                val isExplicit24K = Regex("\\b(?:24\\s*k|24\\s*kt|24kt|24-kt|24\\s*karat|999|999\\.9|995)\\b", RegexOption.IGNORE_CASE).containsMatchIn(plpText)
+
+                val resolvedKarat = when {
+                    isExplicit22K -> 22.0
+                    isExplicit24K -> 24.0
+                    else -> null
+                }
+                val resolvedPurity = when {
+                    isExplicit22K -> "916"
+                    purityAttr != null -> purityAttr
+                    isExplicit24K -> "999"
+                    else -> null
+                }
+
+                val weight = WeightExtractor.parse(displayName, plpText)
 
                 val record = BridgeRecord(
                     retailerId = pid,
@@ -260,14 +292,16 @@ object MyntraNativeParser {
                     price = price,
                     couponPrice = couponPrice,
                     metal = metalAttr,
-                    purity = purityAttr,
+                    karat = resolvedKarat,
+                    purity = resolvedPurity,
+                    grams = weight.totalWeightGrams,
                     unavailable = isProductUnavailable,
                 )
 
                 when (val candidate = record.toProductCandidate("myntra.com", bullionRate24)) {
                     is CandidateParseResult.Valid -> candidates.add(candidate.candidate)
                     is CandidateParseResult.Rejected -> {
-                        if (isProductUnavailable) {
+                        if (isProductUnavailable && !isExplicit22K) {
                             candidates.add(
                                 ProductCandidate(
                                     store = "myntra.com",
