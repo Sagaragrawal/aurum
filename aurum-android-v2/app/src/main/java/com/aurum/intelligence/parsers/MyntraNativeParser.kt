@@ -40,7 +40,12 @@ object MyntraNativeParser {
                 ?: return ParseResult(emptyList(), 0)
 
             val flags = pdpData.optJSONObject("flags")
-            val isOutOfStock = flags?.optBoolean("outOfStock", false) == true || pdpData.optBoolean("outOfStock", false)
+            val availabilityStr = pdpData.optString("availability")
+            val isOutOfStock = flags?.optBoolean("outOfStock", false) == true ||
+                pdpData.optBoolean("outOfStock", false) ||
+                availabilityStr.contains("outofstock", ignoreCase = true) ||
+                availabilityStr.contains("out of stock", ignoreCase = true) ||
+                availabilityStr.contains("not_available", ignoreCase = true)
 
             val landingPage = pdpData.optString("landingPageUrl").trimStart('/')
             val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
@@ -160,25 +165,33 @@ object MyntraNativeParser {
                 val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
                 val fullUrl = if (landingPage.startsWith("http")) landingPage else "$baseUrl/$landingPage"
 
-                // Check inventory
+                // Check inventory & availability
+                val availabilityStr = item.optString("availability")
+                val flags = item.optJSONObject("flags")
+                val isExplicitOutOfStock = availabilityStr.contains("outofstock", ignoreCase = true) ||
+                    availabilityStr.contains("out of stock", ignoreCase = true) ||
+                    availabilityStr.contains("not_available", ignoreCase = true) ||
+                    flags?.optBoolean("outOfStock", false) == true ||
+                    item.optBoolean("outOfStock", false)
+
                 val inventoryArray = item.optJSONArray("inventoryInfo")
-                var hasStock = false
-                if (inventoryArray != null && inventoryArray.length() > 0) {
+                val hasStock = if (inventoryArray != null && inventoryArray.length() > 0) {
+                    var inStock = false
                     for (j in 0 until inventoryArray.length()) {
                         val inv = inventoryArray.optJSONObject(j)
                         val isAvail = inv?.optBoolean("available", true) == true
                         val count = inv?.optInt("inventory", 0) ?: 0
                         if (isAvail && count > 0) {
-                            hasStock = true
+                            inStock = true
                             break
                         }
                     }
+                    inStock && !isExplicitOutOfStock
+                } else {
+                    !isExplicitOutOfStock
                 }
 
-                val flags = item.optJSONObject("flags")
-                if (flags?.optBoolean("outOfStock", false) == true || item.optBoolean("outOfStock", false)) {
-                    hasStock = false
-                }
+                val isProductUnavailable = !hasStock || isExplicitOutOfStock
 
                 val displayName = if (!brand.isNullOrBlank() && !name.startsWith(brand, ignoreCase = true)) {
                     "$brand $name"
@@ -201,12 +214,30 @@ object MyntraNativeParser {
                     couponPrice = couponPrice,
                     metal = metalAttr ?: "Gold",
                     purity = purityAttr,
-                    unavailable = !hasStock,
+                    unavailable = isProductUnavailable,
                 )
 
                 when (val candidate = record.toProductCandidate("myntra.com", bullionRate24)) {
                     is CandidateParseResult.Valid -> candidates.add(candidate.candidate)
-                    is CandidateParseResult.Rejected -> { /* Skip filtered non-gold / non-24k / implausible items */ }
+                    is CandidateParseResult.Rejected -> {
+                        if (isProductUnavailable) {
+                            candidates.add(
+                                ProductCandidate(
+                                    store = "myntra.com",
+                                    retailerId = pid,
+                                    canonicalUrl = ProductIdentity.canonicalUrl(fullUrl),
+                                    name = displayName,
+                                    brand = brand,
+                                    price = price,
+                                    couponPrice = couponPrice,
+                                    grams = null,
+                                    karat = 24.0,
+                                    purity = purityAttr ?: "999",
+                                    unavailable = true,
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }

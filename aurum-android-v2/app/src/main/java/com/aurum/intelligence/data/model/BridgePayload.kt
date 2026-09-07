@@ -95,8 +95,8 @@ data class BridgeRecord(
         val totalGrams = DatabaseSanitizerEngine.normalizeVendorWeight(rawTotalGrams, acceptedPrice)
         val unitGrams = if (qty > 1 && totalGrams != null) totalGrams / qty else (totalGrams ?: rawUnitGrams)
         
-        if (!DatabaseSanitizerEngine.validatePricePlausibility(acceptedPrice, totalGrams, resolvedKarat, bullionRate24)) {
-            return CandidateParseResult.Rejected("implausible_price")
+        if (acceptedPrice <= 0 || !acceptedPrice.isFinite()) {
+            return CandidateParseResult.Rejected("invalid_price")
         }
         
         val isMicro = DatabaseSanitizerEngine.isMicroCoin(totalGrams)

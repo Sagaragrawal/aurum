@@ -122,8 +122,7 @@ data class StorageConfig(
     val backupDbFileName: String = "aurum.db",
     val internalDbFileName: String = "aurum_internal.db",
     val rawPagesDirName: String = "raw_pages",
-    val seedDbFileName: String = "aurum.sqlite",
-    val productSeedFiles: List<String> = emptyList(),
+    val seedDbFileName: String = "aurum.db",
 )
 
 @Serializable
@@ -146,8 +145,6 @@ data class CircuitBreakerConfig(
 
 @Serializable
 data class PolicyConfig(
-    val minPlausibleGoldPricePerGram: Double = 3000.0,
-    val maxPlausibleGoldPricePerGram: Double = 35000.0,
     val minPlausibleBullionRate24: Double = 3000.0,
     val maxPlausibleBullionRate24: Double = 50000.0,
     val minBullion22Ratio: Double = 0.72,
@@ -155,11 +152,7 @@ data class PolicyConfig(
     val bullionMedianTolerance: Double = 0.06,
     val staleThresholdMillis: Long = 86400000L,
     val liveFreshnessMillis: Long = 86400000L,
-    val minPlausibleDealRatio: Double = 0.55,
     val microCoinMaxGrams: Double = 0.25,
-    val vendorWeightCorrectionMinGrams: Double = 50.0,
-    val vendorWeightCorrectionMaxPrice: Double = 100000.0,
-    val vendorWeightCorrectionThreshold: Double = 3000.0,
     val unserviceableTerms: List<String> = emptyList(),
 )
 

@@ -285,7 +285,9 @@ abstract class AurumDatabase : RoomDatabase() {
             context.applicationContext,
             AurumDatabase::class.java,
             "aurum.db",
-        ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+        ).createFromAsset("seed/aurum.db")
+         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+         .build()
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

@@ -95,50 +95,6 @@ class AurumApplication : Application() {
                     }
 
                     bullionRepository.ensureSources()
-                    DesktopBullionHistorySeeder(this@AurumApplication, database).seed()
-                    DesktopProductSeeder(database, assets).seedIfEmpty()
-
-                    // Sanitize all existing database product entries on startup
-                    val allProducts = database.dao().allProducts()
-                    var cleanedCount = 0
-                    allProducts.forEach { product ->
-                        val cleanName = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.cleanTitle(product.name)
-                        val resolvedKarat = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.resolveKarat(cleanName, product.karat)
-                        val resolvedPurity = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.resolvePurity(cleanName, product.purity)
-                        val extractedWeight = com.aurum.intelligence.data.validation.WeightExtractor.parse(cleanName)
-                        val unitGrams = extractedWeight.unitWeightGrams ?: product.unitWeightGrams ?: product.grams
-                        val totalGrams = extractedWeight.totalWeightGrams ?: product.totalWeightGrams ?: product.grams
-                        val isMicro = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.isMicroCoin(totalGrams)
-
-                        if (cleanName != product.name || resolvedKarat != product.karat || resolvedPurity != product.purity || totalGrams != product.totalWeightGrams || isMicro != product.isMicroCoin) {
-                            database.dao().upsertProduct(product.copy(
-                                name = cleanName,
-                                karat = resolvedKarat,
-                                purity = resolvedPurity,
-                                unitWeightGrams = unitGrams,
-                                quantity = extractedWeight.quantity,
-                                totalWeightGrams = totalGrams,
-                                grams = totalGrams,
-                                weightConfidence = extractedWeight.confidence.name,
-                                isMicroCoin = isMicro,
-                            ))
-                            cleanedCount++
-                        }
-                    }
-
-                    // Enforce 100% 24K Gold Coin & Bar compliance on startup
-                    val purgedCount = com.aurum.intelligence.data.db.DatabaseSanitizerEngine.purgeNon24KGoldCoinsAndBars(database)
-                    if (purgedCount > 0) {
-                        refreshActivityRepository.log(
-                            com.aurum.intelligence.data.repository.RefreshLogSeverity.Info,
-                            null,
-                            "DatabaseSanitizerEngine purged $purgedCount invalid non-24K/jewelry items from database",
-                        )
-                    }
-
-                    if (cleanedCount > 0 || purgedCount > 0) {
-                        DatabaseBackupManager.createBackup(repository, this@AurumApplication)
-                    }
 
                     // Always sync databases to /storage/emulated/0/aurum/ on startup
                     DatabaseBackupManager.syncDatabasesToExternal(this@AurumApplication, database, internalDatabase)

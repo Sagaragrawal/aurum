@@ -14,8 +14,8 @@ android {
         applicationId = "com.aurum.intelligence"
         minSdk = 26
         targetSdk = 36
-        versionCode = 40926
-        versionName = "4.9.26"
+        versionCode = 40927
+        versionName = "4.9.27"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

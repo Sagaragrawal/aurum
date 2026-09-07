@@ -285,13 +285,7 @@
     "backupDbFileName": "aurum.db",
     "internalDbFileName": "aurum_internal.db",
     "rawPagesDirName": "raw_pages",
-    "seedDbFileName": "aurum.sqlite",
-    "productSeedFiles": [
-      "ajio-com.json",
-      "amazon-in.json",
-      "flipkart-com.json",
-      "myntra-com.json"
-    ]
+    "seedDbFileName": "aurum.db"
   },
   "notifications": {
     "channelDealsId": "aurum_deals_channel",
@@ -321,8 +315,6 @@
     ]
   },
   "policy": {
-    "minPlausibleGoldPricePerGram": 3000.0,
-    "maxPlausibleGoldPricePerGram": 35000.0,
     "minPlausibleBullionRate24": 3000.0,
     "maxPlausibleBullionRate24": 50000.0,
     "minBullion22Ratio": 0.72,
@@ -330,11 +322,7 @@
     "bullionMedianTolerance": 0.06,
     "staleThresholdMillis": 86400000,
     "liveFreshnessMillis": 86400000,
-    "minPlausibleDealRatio": 0.55,
     "microCoinMaxGrams": 0.25,
-    "vendorWeightCorrectionMinGrams": 50.0,
-    "vendorWeightCorrectionMaxPrice": 100000.0,
-    "vendorWeightCorrectionThreshold": 3000.0,
     "unserviceableTerms": [
       "not deliverable",
       "currently unavailable",

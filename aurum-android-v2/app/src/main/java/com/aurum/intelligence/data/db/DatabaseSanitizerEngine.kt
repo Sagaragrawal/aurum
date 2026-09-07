@@ -105,35 +105,13 @@ object DatabaseSanitizerEngine {
         return false
     }
 
-    fun normalizeVendorWeight(grams: Double?, price: Double): Double? {
+    fun normalizeVendorWeight(grams: Double?, price: Double = 0.0): Double? {
         if (grams == null || !grams.isFinite() || grams <= 0) return null
-        val policy = ScraperConfigProvider.get().policy
-        if (grams >= policy.vendorWeightCorrectionMinGrams && (price / grams) < policy.vendorWeightCorrectionThreshold && price < policy.vendorWeightCorrectionMaxPrice) {
-            return grams / 1000.0
-        }
         return grams
     }
 
-    fun validatePricePlausibility(price: Double, weightGrams: Double?, karat: Double? = 24.0, bullionRate24: Double? = null): Boolean {
-        if (price <= 0 || !price.isFinite()) return false
-        if (weightGrams == null || weightGrams <= 0) return true // Cannot evaluate price per gram without weight
-
-        val policy = ScraperConfigProvider.get().policy
-        val pricePerGram = price / weightGrams
-        val minPlausible = policy.minPlausibleGoldPricePerGram
-        val maxPlausible = policy.maxPlausibleGoldPricePerGram
-
-        if (pricePerGram !in minPlausible..maxPlausible) return false
-
-        if (bullionRate24 != null && bullionRate24 > 0) {
-            val karatFactor = (karat ?: 24.0) / 24.0
-            val benchmarkPerGram = bullionRate24 * karatFactor
-            if (pricePerGram < benchmarkPerGram * 0.80 || pricePerGram > benchmarkPerGram * 3.50) {
-                return false
-            }
-        }
-
-        return true
+    fun validatePricePlausibility(price: Double, weightGrams: Double? = null, karat: Double? = null, bullionRate24: Double? = null): Boolean {
+        return price > 0 && price.isFinite()
     }
 
     suspend fun purgeNon24KGoldCoinsAndBars(database: AurumDatabase): Int {

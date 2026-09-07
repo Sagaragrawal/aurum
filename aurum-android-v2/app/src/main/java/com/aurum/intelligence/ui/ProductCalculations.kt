@@ -63,7 +63,9 @@ object ProductCalculations {
     val LIVE_FRESHNESS_MILLIS: Long get() = ScraperConfigProvider.get().policy.liveFreshnessMillis
 
     fun isUnavailable(product: ProductEntity): Boolean =
-        product.status == "unavailable" ||
+        !product.deliverable ||
+            product.status == "unavailable" ||
+            product.status == "out_of_stock" ||
             ProductAvailability.isUnavailableName(product.name) ||
             product.name.contains("unserviceable", ignoreCase = true) ||
             product.name.contains("not deliverable", ignoreCase = true) ||
@@ -183,7 +185,7 @@ object ProductCalculations {
         if (!isRecentlyLive(product, nowMillis) || productKarat(product) !in setOf(24, 22)) return false
         if (benchmarkPerGram == null || !benchmarkPerGram.isFinite() || benchmarkPerGram <= 0) return false
         val perGram = effectivePerGram(product) ?: return false
-        return perGram.isFinite() && perGram >= benchmarkPerGram * MIN_PLAUSIBLE_DEAL_RATIO
+        return perGram.isFinite() && perGram > 0
     }
 
     fun productKarat(product: ProductEntity): Int? = product.karat?.toInt()
@@ -260,6 +262,4 @@ object ProductCalculations {
             else -> first.toString().compareTo(second.toString())
         }
     }
-
-    private const val MIN_PLAUSIBLE_DEAL_RATIO = 0.55
 }
