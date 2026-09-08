@@ -16,6 +16,16 @@ object MyntraNativeParser {
 
     private val myxRegex = Regex("""<script[^>]*>\s*window\.__myx\s*=\s*(.+?)</script>""", RegexOption.DOT_MATCHES_ALL)
 
+    private fun isIgnoredFirstUserCoupon(code: String?): Boolean {
+        if (code.isNullOrBlank()) return false
+        val upper = code.uppercase()
+        return upper.contains("MYNTRA300") ||
+            upper.contains("MYNTRA200") ||
+            upper.contains("MYNTRA100") ||
+            upper.contains("NEWUSER") ||
+            upper.contains("FIRST")
+    }
+
     fun parse(content: String, bullionRate24: Double? = null): ParseResult {
         val jsonString = if (content.contains("window.__myx")) {
             val raw = myxRegex.find(content)?.groupValues?.get(1)?.trim()
@@ -36,8 +46,36 @@ object MyntraNativeParser {
             val brand = brandObj?.optString("name")?.takeIf(String::isNotBlank)
             val priceObj = pdpData.optJSONObject("price")
             val price = priceObj?.optDouble("discounted")?.takeIf { it.isFinite() && it > 0 }
+                ?: priceObj?.optDouble("price")?.takeIf { it.isFinite() && it > 0 }
                 ?: priceObj?.optDouble("mrp")?.takeIf { it.isFinite() && it > 0 }
                 ?: return ParseResult(emptyList(), 0)
+
+            val pdpCouponData = pdpData.optJSONObject("couponData")
+            val pdpCouponCode = pdpCouponData?.optJSONObject("couponDescription")?.optString("couponCode")
+                ?: pdpCouponData?.optString("couponCode")
+                ?: pdpData.optString("couponCode")
+
+            val isIgnoredCoupon = isIgnoredFirstUserCoupon(pdpCouponCode)
+
+            val pdpBestPrice = pdpCouponData?.optJSONObject("couponDescription")?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                ?: pdpCouponData?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                ?: pdpData.optDouble("bestPrice").takeIf { it.isFinite() && it > 0 && it < price }
+
+            val pdpCouponDiscount = pdpCouponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                ?: pdpCouponData?.optJSONObject("couponDescription")?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                ?: pdpData.optDouble("personalizedCouponValue").takeIf { it.isFinite() && it > 0 }
+                ?: pdpData.optJSONObject("personalizedCoupon")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+
+            val pdpCouponPrice = when {
+                isIgnoredCoupon -> null
+                pdpBestPrice != null -> pdpBestPrice
+                pdpCouponDiscount != null && pdpCouponDiscount < price -> price - pdpCouponDiscount
+                else -> null
+            }
+
+            val pdpIsBlink = !isIgnoredCoupon && ((pdpCouponCode != null && pdpCouponCode.contains("BLINK", ignoreCase = true)) ||
+                pdpData.optString("discountLabel").contains("BLINK", ignoreCase = true) ||
+                pdpData.optString("discountDisplayLabel").contains("BLINK", ignoreCase = true))
 
             val flags = pdpData.optJSONObject("flags")
             val availabilityStr = pdpData.optString("availability")
@@ -122,12 +160,14 @@ object MyntraNativeParser {
                 name = displayName,
                 brand = brand,
                 price = price,
-                couponPrice = null,
+                couponPrice = pdpCouponPrice,
                 metal = "Gold",
                 karat = resolvedKarat,
                 purity = resolvedPurity,
                 grams = weight.totalWeightGrams,
                 unavailable = isOutOfStock,
+                isBlinkDeal = pdpIsBlink,
+                blinkDealPrice = if (pdpIsBlink) pdpCouponPrice else null,
             )
 
             val candidates = ArrayList<ProductCandidate>()
@@ -142,11 +182,13 @@ object MyntraNativeParser {
                             name = displayName,
                             brand = brand,
                             price = price,
-                            couponPrice = null,
+                            couponPrice = pdpCouponPrice,
                             grams = weight.totalWeightGrams,
                             karat = 24.0,
                             purity = "999",
                             unavailable = true,
+                            isBlinkDeal = pdpIsBlink,
+                            blinkDealPrice = if (pdpIsBlink) pdpCouponPrice else null,
                         ))
                     }
                 }
@@ -226,15 +268,33 @@ object MyntraNativeParser {
                 if (parsedPrice == null && !isProductUnavailable) continue
                 val price = parsedPrice ?: 0.0
 
-                // Check coupon discount and bestPrice
+                // Check coupon discount, bestPrice, and BlinkDeal
                 val couponData = item.optJSONObject("couponData")
-                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                val couponCode = couponData?.optJSONObject("couponDescription")?.optString("couponCode")
+                    ?: couponData?.optString("couponCode")
+                    ?: item.optString("couponCode")
+
+                val isIgnoredCoupon = isIgnoredFirstUserCoupon(couponCode)
+
                 val bestPrice = couponData?.optJSONObject("couponDescription")?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                    ?: couponData?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                    ?: item.optDouble("bestPrice").takeIf { it.isFinite() && it > 0 && it < price }
+
+                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                    ?: couponData?.optJSONObject("couponDescription")?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                    ?: item.optDouble("personalizedCouponValue").takeIf { it.isFinite() && it > 0 }
+                    ?: item.optJSONObject("personalizedCoupon")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+
                 val couponPrice = when {
+                    isIgnoredCoupon -> null
                     bestPrice != null -> bestPrice
                     couponDiscount != null && couponDiscount < price -> price - couponDiscount
                     else -> null
                 }
+
+                val isBlink = !isIgnoredCoupon && ((couponCode != null && couponCode.contains("BLINK", ignoreCase = true)) ||
+                    item.optString("discountLabel").contains("BLINK", ignoreCase = true) ||
+                    item.optString("discountDisplayLabel").contains("BLINK", ignoreCase = true))
 
                 val landingPage = item.optString("landingPageUrl").trimStart('/')
                 val baseUrl = ScraperConfigProvider.get().stores["myntra"]?.webBaseUrl ?: "https://www.myntra.com"
@@ -296,6 +356,8 @@ object MyntraNativeParser {
                     purity = resolvedPurity,
                     grams = weight.totalWeightGrams,
                     unavailable = isProductUnavailable,
+                    isBlinkDeal = isBlink,
+                    blinkDealPrice = if (isBlink) couponPrice else null,
                 )
 
                 when (val candidate = record.toProductCandidate("myntra.com", bullionRate24)) {
@@ -315,6 +377,8 @@ object MyntraNativeParser {
                                     karat = 24.0,
                                     purity = purityAttr ?: "999",
                                     unavailable = true,
+                                    isBlinkDeal = isBlink,
+                                    blinkDealPrice = if (isBlink) couponPrice else null,
                                 )
                             )
                         }

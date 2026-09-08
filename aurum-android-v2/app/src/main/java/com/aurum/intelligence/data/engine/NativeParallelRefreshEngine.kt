@@ -109,7 +109,7 @@ class NativeParallelRefreshEngine(
             } else null
 
             val amazonDeferred = if (activeStores == null || "amazon.in" in activeStores) {
-                async { refreshAmazon(initialBenchmarkRate, maxPagesPerStore, onProgress) }
+                async { refreshAmazon(pincode, initialBenchmarkRate, maxPagesPerStore, onProgress) }
             } else null
 
             val myntraDeferred = if (activeStores == null || "myntra.com" in activeStores) {
@@ -396,15 +396,12 @@ class NativeParallelRefreshEngine(
 
         val config = ScraperConfigProvider.get()
         val flipkartTargets = config.flipkartTargets
-
-        val flipkartHeaders = config.stores["flipkart"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
+        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+        val flipkartHeaders = (config.stores["flipkart"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
         for (target in flipkartTargets) {
             val urlStart = System.currentTimeMillis()
-            val targetUrl = if (!target.url.contains("pinCode=")) {
-                val sep = if (target.url.contains("?")) "&" else "?"
-                "${target.url}${sep}pinCode=$pincode"
-            } else target.url
+            val targetUrl = target.url
             try {
                 activityRepository?.log(
                     RefreshLogSeverity.Info,
@@ -562,15 +559,12 @@ class NativeParallelRefreshEngine(
 
         val config = ScraperConfigProvider.get()
         val shopsyTargets = config.shopsyTargets
-
-        val shopsyHeaders = config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
+        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+        val shopsyHeaders = (config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
         for (target in shopsyTargets) {
             val urlStart = System.currentTimeMillis()
-            val targetUrl = if (!target.url.contains("pinCode=")) {
-                val sep = if (target.url.contains("?")) "&" else "?"
-                "${target.url}${sep}pinCode=$pincode"
-            } else target.url
+            val targetUrl = target.url
             try {
                 activityRepository?.log(
                     RefreshLogSeverity.Info,
@@ -712,6 +706,7 @@ class NativeParallelRefreshEngine(
     // AMAZON ENGINE
     // =========================================================================
     private suspend fun refreshAmazon(
+        pincode: String,
         bullionRate24: Double?,
         maxPages: Int,
         onProgress: (StoreRefreshProgress) -> Unit,
@@ -726,8 +721,8 @@ class NativeParallelRefreshEngine(
 
         val config = ScraperConfigProvider.get()
         val amazonTargets = config.amazonTargets
-
-        val amazonHeaders = config.stores["amazon"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
+        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+        val amazonHeaders = (config.stores["amazon"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
         for (target in amazonTargets) {
             val urlStart = System.currentTimeMillis()
@@ -1307,8 +1302,9 @@ class NativeParallelRefreshEngine(
             "[$store] Starting PDP verification for ${unrefreshed.size} items..."
         )
 
-        val desktopHeaders = config.network.desktopHeaders
-        val ajioPdpHeaders = config.network.ajioPdpHeaders
+        val pincodeHeaders = pincode?.let { LocationHelper.buildPincodeHeaders(it) } ?: emptyMap()
+        val desktopHeaders = config.network.desktopHeaders + pincodeHeaders
+        val ajioPdpHeaders = config.network.ajioPdpHeaders + pincodeHeaders
         val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
 
         var pdpRequests = 0
@@ -1438,16 +1434,6 @@ class NativeParallelRefreshEngine(
                                 }
                             } catch (e: Exception) {
                                 pdpFailed++
-                                runCatching {
-                                    database.dao().upsertProduct(
-                                        product.copy(
-                                            status = "unavailable",
-                                            deliverable = false,
-                                            checkedAt = System.currentTimeMillis(),
-                                        )
-                                    )
-                                    pdpUnavailable++
-                                }
                                 Log.w(tag, "PDP verification error for ${product.retailerId}: ${e.message}")
                             }
                         }
@@ -1464,12 +1450,20 @@ class NativeParallelRefreshEngine(
             )
         }
 
-        val demotedUnavailable = database.dao().markStoreStaleProductsUnavailable(store)
-        if (demotedUnavailable > 0) {
+        if (!abortPdp) {
+            val demotedUnavailable = database.dao().markStoreStaleProductsUnavailable(store)
+            if (demotedUnavailable > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    store,
+                    "[$store] Reconciled catalogue: $demotedUnavailable stale items marked unavailable"
+                )
+            }
+        } else {
             activityRepository?.log(
                 RefreshLogSeverity.Info,
                 store,
-                "[$store] Reconciled catalogue: $demotedUnavailable stale items marked unavailable"
+                "[$store] PDP verification aborted due to rate limits; preserving remaining items."
             )
         }
 

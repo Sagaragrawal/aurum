@@ -40,6 +40,29 @@ class MissingCatalogueProductVerifierTest {
     }
 
     @Test
+    fun classifiesEnterPincodeAndChangeAddressAsAvailable() {
+        val flipkartWithPincodeBox = ProductLookup.parse(
+            "flipkart.com",
+            200,
+            """<h1>24K Gold Coin 1g</h1><span>₹16,137</span><div>Enter Pincode</div><div>Change Address</div>""",
+        )
+        assertTrue(
+            "Expected Available, got $flipkartWithPincodeBox",
+            flipkartWithPincodeBox is ProductLookup.Available && flipkartWithPincodeBox.price == 16137.0,
+        )
+
+        val shopsyWithPincodeBox = ProductLookup.parse(
+            "shopsy.in",
+            200,
+            """<h1>24K Gold Coin 2g</h1><span>₹32,125</span><div>Check deliverability</div><div>Enter pincode</div>""",
+        )
+        assertTrue(
+            "Expected Available, got $shopsyWithPincodeBox",
+            shopsyWithPincodeBox is ProductLookup.Available && shopsyWithPincodeBox.price == 32125.0,
+        )
+    }
+
+    @Test
     fun classifiesMyntraWindowMyxOutOfStockAsUnavailable() {
         val html = """
             <html>

@@ -163,6 +163,8 @@ object LocationHelper {
     fun buildPincodeHeaders(pincode: String): Map<String, String> = mapOf(
         "X-Pincode" to pincode,
         "X-Delivery-Pincode" to pincode,
-        "Cookie" to "pincode=$pincode; ajio_pincode=$pincode; mynt-ulc=pincode:$pincode; fk_pincode=$pincode",
+        "X-User-Pincode" to pincode,
+        "X-Location-Context" to "{\"pincode\":\"$pincode\"}",
+        "Cookie" to "pincode=$pincode; ajio_pincode=$pincode; mynt-ulc=pincode:$pincode; fk_pincode=$pincode; locationPincode=$pincode; locationContext={\"pincode\":\"$pincode\"}",
     )
 }

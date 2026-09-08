@@ -12,6 +12,16 @@ object MyntraNativeParser {
         val totalCount: Int,
     )
 
+    private fun isIgnoredFirstUserCoupon(code: String?): Boolean {
+        if (code.isNullOrBlank()) return false
+        val upper = code.uppercase()
+        return upper.contains("MYNTRA300") ||
+            upper.contains("MYNTRA200") ||
+            upper.contains("MYNTRA100") ||
+            upper.contains("NEWUSER") ||
+            upper.contains("FIRST")
+    }
+
     fun parse(jsonString: String, bullionRate24: Double? = null): ParseResult {
         val root = runCatching { JSONObject(jsonString) }.getOrNull()
             ?: return ParseResult(emptyList(), 0)
@@ -39,13 +49,40 @@ object MyntraNativeParser {
 
                 val brand = item.optString("brand").takeIf(String::isNotBlank)
 
-                // In Myntra gateway search: 'price' is the discounted selling price, 'mrp' is the original price
-                val price = item.optDouble("price").takeIf { it.isFinite() && it > 0 } ?: continue
+                // Price resolution: discountedPrice -> price (selling price) -> mrp (full price)
+                val parsedPrice = item.optDouble("discountedPrice").takeIf { it.isFinite() && it > 0 }
+                    ?: item.optDouble("price").takeIf { it.isFinite() && it > 0 }
+                    ?: item.optDouble("mrp").takeIf { it.isFinite() && it > 0 }
+                    ?: continue
+                val price = parsedPrice
 
-                // Check coupon discount
+                // Check coupon discount, bestPrice, and BlinkDeal
                 val couponData = item.optJSONObject("couponData")
-                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 } ?: 0.0
-                val couponPrice = if (couponDiscount > 0 && couponDiscount < price) price - couponDiscount else null
+                val couponCode = couponData?.optJSONObject("couponDescription")?.optString("couponCode")
+                    ?: couponData?.optString("couponCode")
+                    ?: item.optString("couponCode")
+
+                val isIgnoredCoupon = isIgnoredFirstUserCoupon(couponCode)
+
+                val bestPrice = couponData?.optJSONObject("couponDescription")?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                    ?: couponData?.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+                    ?: item.optDouble("bestPrice")?.takeIf { it.isFinite() && it > 0 && it < price }
+
+                val couponDiscount = couponData?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                    ?: couponData?.optJSONObject("couponDescription")?.optDouble("couponDiscount")?.takeIf { it.isFinite() && it > 0 }
+                    ?: item.optDouble("personalizedCouponValue")?.takeIf { it.isFinite() && it > 0 }
+                    ?: item.optJSONObject("personalizedCoupon")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+
+                val couponPrice = when {
+                    isIgnoredCoupon -> null
+                    bestPrice != null -> bestPrice
+                    couponDiscount != null && couponDiscount < price -> price - couponDiscount
+                    else -> null
+                }
+
+                val isBlink = !isIgnoredCoupon && ((couponCode != null && couponCode.contains("BLINK", ignoreCase = true)) ||
+                    item.optString("discountLabel").contains("BLINK", ignoreCase = true) ||
+                    item.optString("discountDisplayLabel").contains("BLINK", ignoreCase = true))
 
                 val landingPage = item.optString("landingPageUrl").trimStart('/')
                 val fullUrl = if (landingPage.startsWith("http")) landingPage else "https://www.myntra.com/$landingPage"
@@ -83,6 +120,8 @@ object MyntraNativeParser {
                     couponPrice = couponPrice,
                     metal = "Gold",
                     unavailable = !hasStock,
+                    isBlinkDeal = isBlink,
+                    blinkDealPrice = if (isBlink) couponPrice else null,
                 )
 
                 when (val candidate = record.toProductCandidate("myntra.com", bullionRate24)) {

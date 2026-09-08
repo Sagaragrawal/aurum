@@ -66,7 +66,7 @@ class NativeParserLiveTest {
 
     @Test
     fun testShopsyLive() {
-        val url = "https://www.shopsy.in/gold-silver-coins/pr?sid=mcr,73x&marketplace=FLIPKART&p[]=facets.material[]=Gold&p[]=facets.material[]=Yellow+Gold&p[]=facets.gold_purity%5B%5D=24+%28999%29+K&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK"
+        val url = "https://www.shopsy.in/gold-silver-coins/pr?sid=mcr%2C73x%2Cydh&marketplace=FLIPKART&p%5B%5D=facets.material%255B%255D%3DGold&p%5B%5D=facets.material%255B%255D%3DYellow%2BGold&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%25289999%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528999%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528995%2529%2BK&p%5B%5D=facets.gold_purity%255B%255D%3D24%2B%2528995%2529%2BKT"
         val (status, body) = fetchUrl(url)
         println("=== SHOPSY LIVE RESULT ===")
         println("Status: $status, Body length: ${body.length}")
