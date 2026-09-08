@@ -127,10 +127,10 @@ object DatabaseBackupManager {
             }
 
             database?.runCatching {
-                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(PASSIVE)").close()
             }
             internalDatabase?.runCatching {
-                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(PASSIVE)").close()
             }
 
             val dbFile = context.getDatabasePath(backupFileName)

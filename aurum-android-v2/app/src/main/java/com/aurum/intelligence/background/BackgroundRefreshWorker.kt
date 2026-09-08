@@ -52,7 +52,7 @@ class BackgroundRefreshWorker(
         return ForegroundInfo(notificationId, notification)
     }
 
-    override suspend fun doWork(): Result = withContext(Dispatchers.Main) {
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val application = applicationContext as AurumApplication
         try {
             setForeground(getForegroundInfo())

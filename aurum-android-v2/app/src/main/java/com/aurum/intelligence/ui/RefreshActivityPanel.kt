@@ -53,10 +53,12 @@ fun RefreshActivityPanel(
     var storeFilter by rememberSaveable { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
     var followNewLogs by remember { mutableStateOf(true) }
-    val stores = logs.mapNotNull(RefreshActivityLogEntity::store).distinct().sorted()
-    val visibleLogs = logs.filter { log ->
-        (severityFilter == null || log.severity == severityFilter!!.severity) &&
-            (storeFilter == null || log.store == storeFilter)
+    val stores = remember(logs) { logs.mapNotNull(RefreshActivityLogEntity::store).distinct().sorted() }
+    val visibleLogs = remember(logs, severityFilter, storeFilter) {
+        logs.filter { log ->
+            (severityFilter == null || log.severity == severityFilter!!.severity) &&
+                (storeFilter == null || log.store == storeFilter)
+        }
     }
     val clipboardManager = LocalContext.current.getSystemService(ClipboardManager::class.java)
     androidx.compose.runtime.LaunchedEffect(copied) {

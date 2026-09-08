@@ -6,6 +6,7 @@ import com.aurum.intelligence.data.repository.*
 import com.aurum.intelligence.data.validation.*
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.aurum.intelligence.parsers.AjioNativeParser
 import com.aurum.intelligence.parsers.AmazonNativeParser
 import com.aurum.intelligence.parsers.BullionNativeParser
@@ -1155,125 +1156,127 @@ class NativeParallelRefreshEngine(
         val now = System.currentTimeMillis()
         var validSaved = 0
 
-        for (candidate in candidates) {
-            try {
-                val cleanRetailerId = candidate.retailerId.substringBefore('_')
-                val existing = database.dao().productByRetailerId(store, candidate.retailerId)
-                    ?: database.dao().productByRetailerId(store, cleanRetailerId)
-                    ?: (if (candidate.canonicalUrl.isNotBlank()) database.dao().productByCanonicalUrl(candidate.canonicalUrl) else null)
-                    ?: if (store == "shopsy.in") {
-                        database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
-                    } else null
+        database.withTransaction {
+            for (candidate in candidates) {
+                try {
+                    val cleanRetailerId = candidate.retailerId.substringBefore('_')
+                    val existing = database.dao().productByRetailerId(store, candidate.retailerId)
+                        ?: database.dao().productByRetailerId(store, cleanRetailerId)
+                        ?: (if (candidate.canonicalUrl.isNotBlank()) database.dao().productByCanonicalUrl(candidate.canonicalUrl) else null)
+                        ?: if (store == "shopsy.in") {
+                            database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
+                        } else null
 
-                val entityId = existing?.id ?: UUID.randomUUID().toString()
-                val targetStore = existing?.store ?: store
-                val targetRetailerId = existing?.retailerId ?: candidate.retailerId
+                    val entityId = existing?.id ?: UUID.randomUUID().toString()
+                    val targetStore = existing?.store ?: store
+                    val targetRetailerId = existing?.retailerId ?: candidate.retailerId
 
-                val rawName = candidate.name ?: existing?.name ?: targetRetailerId
-                val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
-                val isManual = (existing?.manuallyEditedAt ?: 0L) > 1788800000000L
-                val rawPrice = if (candidate.price > 0) candidate.price else existing?.price ?: 0.0
+                    val rawName = candidate.name ?: existing?.name ?: targetRetailerId
+                    val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
+                    val isManual = (existing?.manuallyEditedAt ?: 0L) > 1788800000000L
+                    val rawPrice = if (candidate.price > 0) candidate.price else existing?.price ?: 0.0
 
-                val rawGrams = if (isManual && existing?.grams != null) existing.grams else (candidate.grams ?: existing?.grams)
-                val rawKarat = candidate.karat ?: (if (isManual) existing?.karat else null)
-                val rawPurity = candidate.purity ?: (if (isManual) existing?.purity else null)
+                    val rawGrams = if (isManual && existing?.grams != null) existing.grams else (candidate.grams ?: existing?.grams)
+                    val rawKarat = candidate.karat ?: (if (isManual) existing?.karat else null)
+                    val rawPurity = candidate.purity ?: (if (isManual) existing?.purity else null)
 
-                var normalizedKarat = 24.0
-                var normalizedPurity = "999"
-                var normalizedTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
+                    var normalizedKarat = 24.0
+                    var normalizedPurity = "999"
+                    var normalizedTitle = DatabaseSanitizerEngine.cleanTitle(rawName)
 
-                if (!isManual) {
-                    val validation = Product24KValidator.validate(
-                        name = rawName,
+                    if (!isManual) {
+                        val validation = Product24KValidator.validate(
+                            name = rawName,
+                            store = targetStore,
+                            karat = rawKarat,
+                            purity = rawPurity,
+                            price = rawPrice,
+                            grams = rawGrams,
+                            brand = candidate.brand ?: existing?.brand,
+                            canonicalUrl = candidate.canonicalUrl,
+                            retailerId = targetRetailerId,
+                        )
+                        if (!validation.isValid) {
+                            if (existing != null) {
+                                database.dao().deleteProduct(existing.id)
+                            }
+                            continue
+                        }
+                        normalizedKarat = validation.normalizedKarat
+                        normalizedPurity = validation.normalizedPurity
+                        normalizedTitle = validation.normalizedTitle
+                    }
+
+                    val finalTitle = if (isManual && !existing?.name.isNullOrBlank()) existing.name else normalizedTitle
+                    val finalGrams = rawGrams
+                    val finalKarat = if (isManual && existing?.karat != null) existing.karat else normalizedKarat
+                    val finalPurity = if (isManual && !existing?.purity.isNullOrBlank()) existing.purity else normalizedPurity
+                    val finalUnitWeight = if (isManual) existing?.unitWeightGrams else (candidate.unitWeightGrams ?: existing?.unitWeightGrams)
+                    val finalTotalWeight = if (isManual) existing?.totalWeightGrams else (candidate.totalWeightGrams ?: existing?.totalWeightGrams)
+                    val finalQuantity = if (isManual && existing != null) existing.quantity else candidate.quantity
+                    val finalManual = if (isManual) existing?.manuallyEditedAt else null
+
+                    val entity = ProductEntity(
+                        id = entityId,
                         store = targetStore,
-                        karat = rawKarat,
-                        purity = rawPurity,
-                        price = rawPrice,
-                        grams = rawGrams,
-                        brand = candidate.brand ?: existing?.brand,
-                        canonicalUrl = candidate.canonicalUrl,
                         retailerId = targetRetailerId,
+                        canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
+                        name = finalTitle,
+                        brand = candidate.brand ?: existing?.brand,
+                        grams = finalGrams,
+                        karat = finalKarat,
+                        purity = finalPurity,
+                        price = rawPrice,
+                        couponPrice = candidate.couponPrice,
+                        status = if (isUnavailable) "unavailable" else "live",
+                        refreshMethod = "$store-native-parallel",
+                        checkedAt = now,
+                        lastLiveAt = if (!isUnavailable) now else existing?.lastLiveAt ?: 0,
+                        manuallyEditedAt = finalManual,
+                        unitWeightGrams = finalUnitWeight,
+                        quantity = finalQuantity,
+                        totalWeightGrams = finalTotalWeight,
+                        weightConfidence = candidate.weightConfidence,
+                        pincode = pincode ?: existing?.pincode,
+                        latitude = existing?.latitude,
+                        longitude = existing?.longitude,
+                        formattedAddress = existing?.formattedAddress,
+                        isBlinkDeal = candidate.isBlinkDeal,
+                        blinkDealPrice = candidate.blinkDealPrice ?: existing?.blinkDealPrice,
+                        blinkDealEndTime = existing?.blinkDealEndTime,
+                        deliverable = !isUnavailable,
+                        isMicroCoin = candidate.isMicroCoin,
                     )
-                    if (!validation.isValid) {
-                        if (existing != null) {
-                            database.dao().deleteProduct(existing.id)
-                        }
-                        continue
-                    }
-                    normalizedKarat = validation.normalizedKarat
-                    normalizedPurity = validation.normalizedPurity
-                    normalizedTitle = validation.normalizedTitle
-                }
 
-                val finalTitle = if (isManual && !existing?.name.isNullOrBlank()) existing.name else normalizedTitle
-                val finalGrams = rawGrams
-                val finalKarat = if (isManual && existing?.karat != null) existing.karat else normalizedKarat
-                val finalPurity = if (isManual && !existing?.purity.isNullOrBlank()) existing.purity else normalizedPurity
-                val finalUnitWeight = if (isManual) existing?.unitWeightGrams else (candidate.unitWeightGrams ?: existing?.unitWeightGrams)
-                val finalTotalWeight = if (isManual) existing?.totalWeightGrams else (candidate.totalWeightGrams ?: existing?.totalWeightGrams)
-                val finalQuantity = if (isManual && existing != null) existing.quantity else candidate.quantity
-                val finalManual = if (isManual) existing?.manuallyEditedAt else null
+                    database.dao().upsertProduct(entity)
 
-                val entity = ProductEntity(
-                    id = entityId,
-                    store = targetStore,
-                    retailerId = targetRetailerId,
-                    canonicalUrl = if (candidate.canonicalUrl.isNotBlank()) candidate.canonicalUrl else existing?.canonicalUrl.orEmpty(),
-                    name = finalTitle,
-                    brand = candidate.brand ?: existing?.brand,
-                    grams = finalGrams,
-                    karat = finalKarat,
-                    purity = finalPurity,
-                    price = rawPrice,
-                    couponPrice = candidate.couponPrice,
-                    status = if (isUnavailable) "unavailable" else "live",
-                    refreshMethod = "$store-native-parallel",
-                    checkedAt = now,
-                    lastLiveAt = if (!isUnavailable) now else existing?.lastLiveAt ?: 0,
-                    manuallyEditedAt = finalManual,
-                    unitWeightGrams = finalUnitWeight,
-                    quantity = finalQuantity,
-                    totalWeightGrams = finalTotalWeight,
-                    weightConfidence = candidate.weightConfidence,
-                    pincode = pincode ?: existing?.pincode,
-                    latitude = existing?.latitude,
-                    longitude = existing?.longitude,
-                    formattedAddress = existing?.formattedAddress,
-                    isBlinkDeal = candidate.isBlinkDeal,
-                    blinkDealPrice = candidate.blinkDealPrice ?: existing?.blinkDealPrice,
-                    blinkDealEndTime = existing?.blinkDealEndTime,
-                    deliverable = !isUnavailable,
-                    isMicroCoin = candidate.isMicroCoin,
-                )
-
-                database.dao().upsertProduct(entity)
-
-                // Track price history if changed
-                if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
-                    runCatching {
-                        if (!database.dao().hasPriceHistory(entityId, candidate.price, candidate.couponPrice, now)) {
-                            database.dao().insertPriceHistory(
-                                ProductPriceHistoryEntity(
-                                    productId = entityId,
-                                    price = candidate.price,
-                                    couponPrice = candidate.couponPrice,
-                                    checkedAt = now,
+                    // Track price history if changed
+                    if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
+                        runCatching {
+                            if (!database.dao().hasPriceHistory(entityId, candidate.price, candidate.couponPrice, now)) {
+                                database.dao().insertPriceHistory(
+                                    ProductPriceHistoryEntity(
+                                        productId = entityId,
+                                        price = candidate.price,
+                                        couponPrice = candidate.couponPrice,
+                                        checkedAt = now,
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
-                }
 
-                if (distinctPids != null) {
-                    if (!distinctPids.contains(targetRetailerId)) {
-                        distinctPids.add(targetRetailerId)
+                    if (distinctPids != null) {
+                        if (!distinctPids.contains(targetRetailerId)) {
+                            distinctPids.add(targetRetailerId)
+                            validSaved++
+                        }
+                    } else {
                         validSaved++
                     }
-                } else {
-                    validSaved++
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to save product ${candidate.retailerId}: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "Failed to save product ${candidate.retailerId}: ${e.message}")
             }
         }
 

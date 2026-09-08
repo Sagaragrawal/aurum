@@ -175,9 +175,10 @@ fun ProductWatchlistScreen(
     var sort by rememberSaveable { mutableStateOf(ProductSort.PricePerGram) }
     var direction by rememberSaveable { mutableStateOf(SortDirection.Ascending) }
     var selectedStores by remember { mutableStateOf(emptySet<String>()) }
-    val stores = products.map(ProductEntity::store).distinct().sorted()
-    LaunchedEffect(stores) {
-        selectedStores = if (selectedStores.isEmpty()) stores.toSet() else selectedStores.intersect(stores.toSet())
+    val stores = remember(products) { products.map(ProductEntity::store).distinct().sorted() }
+    val storesSet = remember(stores) { stores.toSet() }
+    val activeSelectedStores = remember(selectedStores, storesSet) {
+        if (selectedStores.isEmpty()) storesSet else selectedStores.intersect(storesSet)
     }
     LaunchedEffect(pendingDeleteId) {
         if (pendingDeleteId != null) {
@@ -185,22 +186,27 @@ fun ProductWatchlistScreen(
             pendingDeleteId = null
         }
     }
-    val benchmark24 = BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price24 }))
-    val benchmark22 = BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price22 }))
-    val query = WatchlistQuery(
-        purity = purity,
-        search = search,
-        minimumGrams = minimumGrams.toDoubleOrNull(),
-        maximumGrams = maximumGrams.toDoubleOrNull(),
-        stores = selectedStores,
-        quickFilter = quickFilter,
-        sort = sort,
-        direction = direction,
-    )
-    val base = ProductCalculations.baseFiltered(products, query)
-    val counts = ProductCalculations.quickCounts(products, query, benchmark24, benchmark22)
-    val visible = ProductCalculations.filteredAndSorted(products, query, benchmark24, benchmark22)
-    val editingProduct = products.firstOrNull { it.id == editingId }
+    val benchmark24 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price24 })) }
+    val benchmark22 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price22 })) }
+    val query = remember(purity, search, minimumGrams, maximumGrams, activeSelectedStores, quickFilter, sort, direction) {
+        WatchlistQuery(
+            purity = purity,
+            search = search,
+            minimumGrams = minimumGrams.toDoubleOrNull(),
+            maximumGrams = maximumGrams.toDoubleOrNull(),
+            stores = activeSelectedStores,
+            quickFilter = quickFilter,
+            sort = sort,
+            direction = direction,
+        )
+    }
+    val base = remember(products, query) { ProductCalculations.baseFiltered(products, query) }
+    val counts = remember(products, query, benchmark24, benchmark22) { ProductCalculations.quickCounts(products, query, benchmark24, benchmark22) }
+    val visible = remember(products, query, benchmark24, benchmark22) { ProductCalculations.filteredAndSorted(products, query, benchmark24, benchmark22) }
+    val storeCounts = remember(products, stores) { stores.associateWith { st -> products.count { it.store == st } } }
+    val editingProduct = remember(products, editingId) { products.firstOrNull { it.id == editingId } }
+    val availableProducts = remember(visible) { visible.filterNot { ProductCalculations.isUnavailable(it) } }
+    val unavailableProducts = remember(visible) { visible.filter { ProductCalculations.isUnavailable(it) } }
 
     if (addOpen) {
         AddProductDialog(
@@ -301,18 +307,18 @@ fun ProductWatchlistScreen(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 item {
                     FilterChip(
-                        selected = selectedStores == stores.toSet(),
-                        onClick = { selectedStores = stores.toSet() },
+                        selected = activeSelectedStores == storesSet,
+                        onClick = { selectedStores = storesSet },
                         label = { Text("All  ${products.size}", maxLines = 1) },
                     )
                 }
                 items(stores) { store ->
                     FilterChip(
-                        selected = store in selectedStores,
+                        selected = store in activeSelectedStores,
                         onClick = {
-                            selectedStores = RetailerSelection.toggle(selectedStores, store, stores.toSet())
+                            selectedStores = RetailerSelection.toggle(activeSelectedStores, store, storesSet)
                         },
-                        label = { Text("${storeLabel(store)}  ${products.count { it.store == store }}", maxLines = 1) },
+                        label = { Text("${storeLabel(store)}  ${storeCounts[store] ?: 0}", maxLines = 1) },
                     )
                 }
             }
@@ -349,8 +355,6 @@ fun ProductWatchlistScreen(
                 }
             }
         }
-        val availableProducts = visible.filterNot(ProductCalculations::isUnavailable)
-        val unavailableProducts = visible.filter(ProductCalculations::isUnavailable)
         items(availableProducts, key = ProductEntity::id) { product ->
             MobileProductCard(
                 product = product,

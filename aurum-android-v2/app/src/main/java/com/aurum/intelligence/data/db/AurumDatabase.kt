@@ -15,11 +15,14 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.RawQuery
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Upsert
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
@@ -203,8 +206,11 @@ interface AurumDao {
     @Query("DELETE FROM products WHERE id = :id")
     suspend fun deleteProduct(id: String)
 
-    @Query(
-        "DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) " +
+    @RawQuery(observedEntities = [ProductEntity::class])
+    suspend fun executeRawDelete(query: SupportSQLiteQuery): Int
+
+    suspend fun deleteNon24KProducts(): Int {
+        val sql = "DELETE FROM products WHERE (karat IS NOT NULL AND karat < 24.0) " +
             "OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 995.0 AND CAST(purity AS REAL) >= 1.0) " +
             "OR (CAST(purity AS REAL) > 0 AND CAST(purity AS REAL) < 0.995 AND CAST(purity AS REAL) < 1.0) " +
             "OR name LIKE '%22K%' OR name LIKE '%22 K%' OR name LIKE '%22 Kt%' OR name LIKE '%22Kt%' OR name LIKE '%22 Karat%' " +
@@ -222,8 +228,8 @@ interface AurumDao {
             "OR (name LIKE '%mangalsutra%' AND name NOT LIKE '%coin%') " +
             "OR (name LIKE '%bracelet%' AND name NOT LIKE '%coin%') " +
             "OR (name NOT LIKE '%gold%' AND name NOT LIKE '%coin%' AND name NOT LIKE '%bar%' AND name NOT LIKE '%kundan%' AND name NOT LIKE '%refinery%' AND name NOT LIKE '%mmtc%' AND name NOT LIKE '%pamp%')"
-    )
-    suspend fun deleteNon24KProducts(): Int
+        return executeRawDelete(SimpleSQLiteQuery(sql))
+    }
 
     @Query("DELETE FROM product_price_history WHERE productId = :productId")
     suspend fun deleteProductHistory(productId: String)

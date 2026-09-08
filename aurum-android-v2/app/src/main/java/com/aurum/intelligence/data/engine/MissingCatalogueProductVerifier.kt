@@ -137,6 +137,14 @@ class MissingCatalogueProductVerifier(private val database: AurumDatabase) {
                                 details += ProductRefreshDetail(product.canonicalUrl, product.price, product.grams, product.karat, "unavailable")
                             }
                         }
+                        is ProductLookup.RejectedNon24K -> {
+                            database.dao().deleteProductHistory(product.id)
+                            database.dao().deleteProduct(product.id)
+                            synchronized(details) {
+                                unavailable += 1
+                                details += ProductRefreshDetail(product.canonicalUrl, product.price, product.grams, product.karat, "deleted_non_24k")
+                            }
+                        }
                     }
                 }
             }
