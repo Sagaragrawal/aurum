@@ -6,6 +6,7 @@ import com.aurum.intelligence.data.repository.*
 import com.aurum.intelligence.data.validation.*
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -25,6 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
+@Immutable
 @Entity(
     tableName = "products",
     indices = [
@@ -65,6 +67,7 @@ data class ProductEntity(
     val isMicroCoin: Boolean = false,
 )
 
+@Immutable
 @Entity(
     tableName = "product_price_history",
     indices = [Index(value = ["productId", "checkedAt"])],
@@ -85,6 +88,7 @@ data class ProductPriceHistoryEntity(
     val checkedAt: Long,
 )
 
+@Immutable
 @Entity(tableName = "raw_bridge_payloads", indices = [Index(value = ["receivedAt"])])
 data class RawBridgePayloadEntity(
     @PrimaryKey val id: String,
@@ -93,6 +97,7 @@ data class RawBridgePayloadEntity(
     val json: String,
 )
 
+@Immutable
 @Entity(tableName = "bullion_sources", indices = [Index(value = ["status"])])
 data class BullionSourceEntity(
     @PrimaryKey val id: String,
@@ -110,6 +115,7 @@ data class BullionSourceEntity(
     val error: String?,
 )
 
+@Immutable
 @Entity(tableName = "bullion_history", indices = [Index(value = ["sourceId", "fetchedAt"])])
 data class BullionHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -120,6 +126,7 @@ data class BullionHistoryEntity(
     val fetchedAt: Long,
 )
 
+@Immutable
 @Entity(tableName = "refresh_activity_logs", indices = [Index(value = ["timestamp"])])
 data class RefreshActivityLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -200,8 +207,14 @@ interface AurumDao {
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
     suspend fun productById(id: String): ProductEntity?
 
+    @Query("SELECT * FROM products WHERE store = :store")
+    suspend fun productsByStore(store: String): List<ProductEntity>
+
     @Upsert
     suspend fun upsertProduct(product: ProductEntity)
+
+    @Upsert
+    suspend fun upsertProducts(products: List<ProductEntity>)
 
     @Query("DELETE FROM products WHERE id = :id")
     suspend fun deleteProduct(id: String)
@@ -236,6 +249,9 @@ interface AurumDao {
 
     @Insert
     suspend fun insertPriceHistory(history: ProductPriceHistoryEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPriceHistories(histories: List<ProductPriceHistoryEntity>)
 
     @Query(
         "SELECT EXISTS(SELECT 1 FROM product_price_history " +

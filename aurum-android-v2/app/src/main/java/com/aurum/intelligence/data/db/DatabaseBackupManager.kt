@@ -33,7 +33,7 @@ object DatabaseBackupManager {
 
     fun shouldSaveRawPage(store: String): Boolean {
         val config = ScraperConfigProvider.get()
-        return config.debug.saveRawPages[store] != false
+        return config.debug.saveRawPages[store] == true
     }
 
     fun saveRawPage(store: String, pageName: String, content: String, extension: String = "txt") {

@@ -1152,15 +1152,25 @@ class NativeParallelRefreshEngine(
         var validSaved = 0
 
         database.withTransaction {
+            val storeProducts = database.dao().productsByStore(store)
+            val byRetailerId = HashMap<String, ProductEntity>(storeProducts.size * 2)
+            val byCanonicalUrl = HashMap<String, ProductEntity>(storeProducts.size * 2)
+            for (p in storeProducts) {
+                byRetailerId[p.retailerId] = p
+                if (p.canonicalUrl.isNotBlank()) {
+                    byCanonicalUrl[p.canonicalUrl] = p
+                }
+            }
+
+            val entitiesToUpsert = ArrayList<ProductEntity>(candidates.size)
+            val historiesToInsert = ArrayList<ProductPriceHistoryEntity>()
+
             for (candidate in candidates) {
                 try {
                     val cleanRetailerId = candidate.retailerId.substringBefore('_')
-                    val existing = database.dao().productByRetailerId(store, candidate.retailerId)
-                        ?: database.dao().productByRetailerId(store, cleanRetailerId)
-                        ?: (if (candidate.canonicalUrl.isNotBlank()) database.dao().productByCanonicalUrl(candidate.canonicalUrl) else null)
-                        ?: if (store == "shopsy.in") {
-                            database.dao().productByRetailerId("flipkart.com", candidate.retailerId)
-                        } else null
+                    val existing = byRetailerId[candidate.retailerId]
+                        ?: byRetailerId[cleanRetailerId]
+                        ?: (if (candidate.canonicalUrl.isNotBlank()) byCanonicalUrl[candidate.canonicalUrl] else null)
 
                     val entityId = existing?.id ?: UUID.randomUUID().toString()
                     val targetStore = existing?.store ?: store
@@ -1243,22 +1253,17 @@ class NativeParallelRefreshEngine(
                         isMicroCoin = candidate.isMicroCoin,
                     )
 
-                    database.dao().upsertProduct(entity)
+                    entitiesToUpsert.add(entity)
 
-                    // Track price history if changed
                     if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
-                        runCatching {
-                            if (!database.dao().hasPriceHistory(entityId, candidate.price, candidate.couponPrice, now)) {
-                                database.dao().insertPriceHistory(
-                                    ProductPriceHistoryEntity(
-                                        productId = entityId,
-                                        price = candidate.price,
-                                        couponPrice = candidate.couponPrice,
-                                        checkedAt = now,
-                                    )
-                                )
-                            }
-                        }
+                        historiesToInsert.add(
+                            ProductPriceHistoryEntity(
+                                productId = entityId,
+                                price = candidate.price,
+                                couponPrice = candidate.couponPrice,
+                                checkedAt = now,
+                            )
+                        )
                     }
 
                     if (distinctPids != null) {
@@ -1270,8 +1275,15 @@ class NativeParallelRefreshEngine(
                         validSaved++
                     }
                 } catch (e: Exception) {
-                    Log.w(tag, "Failed to save product ${candidate.retailerId}: ${e.message}")
+                    Log.w(tag, "Failed to prepare product ${candidate.retailerId}: ${e.message}")
                 }
+            }
+
+            if (entitiesToUpsert.isNotEmpty()) {
+                database.dao().upsertProducts(entitiesToUpsert)
+            }
+            if (historiesToInsert.isNotEmpty()) {
+                database.dao().insertPriceHistories(historiesToInsert)
             }
         }
 
@@ -1480,6 +1492,8 @@ class NativeParallelRefreshEngine(
     }
 
     private suspend fun recordRawPayload(id: String, store: String, json: String) {
+        val baseStore = store.substringBefore('_').substringBefore('.')
+        if (!DatabaseBackupManager.shouldSaveRawPage(baseStore) && !DatabaseBackupManager.shouldSaveRawPage(store)) return
         val ext = if (json.trimStart().startsWith("<") || json.trimStart().startsWith("<!")) "html" else "json"
         DatabaseBackupManager.saveRawPage(store, id.take(8), json, ext)
         val payload = RawBridgePayloadEntity(

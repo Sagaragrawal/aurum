@@ -1,4 +1,5 @@
 package com.aurum.intelligence.ui
+
 import com.aurum.intelligence.data.db.*
 import com.aurum.intelligence.data.engine.*
 import com.aurum.intelligence.data.model.*
@@ -40,6 +41,8 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+private val logTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
+
 @Composable
 fun RefreshActivityPanel(
     logs: List<RefreshActivityLogEntity>,
@@ -52,6 +55,8 @@ fun RefreshActivityPanel(
     var severityFilter by rememberSaveable { mutableStateOf<RefreshLogFilter?>(null) }
     var storeFilter by rememberSaveable { mutableStateOf<String?>(null) }
     val scrollState = rememberScrollState()
+    val filterScrollState = rememberScrollState()
+    val storeScrollState = rememberScrollState()
     var followNewLogs by remember { mutableStateOf(true) }
     val stores = remember(logs) { logs.mapNotNull(RefreshActivityLogEntity::store).distinct().sorted() }
     val visibleLogs = remember(logs, severityFilter, storeFilter) {
@@ -60,7 +65,9 @@ fun RefreshActivityPanel(
                 (storeFilter == null || log.store == storeFilter)
         }
     }
+    val displayedLogs = remember(visibleLogs) { visibleLogs.takeLast(100) }
     val clipboardManager = LocalContext.current.getSystemService(ClipboardManager::class.java)
+
     androidx.compose.runtime.LaunchedEffect(copied) {
         if (copied) {
             delay(ScraperConfigProvider.get().delays.uiCopyFeedbackTimeoutMs)
@@ -72,7 +79,7 @@ fun RefreshActivityPanel(
             followNewLogs = scrollState.value >= scrollState.maxValue
         }
     }
-    androidx.compose.runtime.LaunchedEffect(visibleLogs.size) {
+    androidx.compose.runtime.LaunchedEffect(displayedLogs.size) {
         if (expanded && followNewLogs) {
             withFrameNanos { }
             scrollState.scrollTo(scrollState.maxValue)
@@ -105,7 +112,7 @@ fun RefreshActivityPanel(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(filterScrollState),
             ) {
                 RefreshLogFilter.entries.forEach { filter ->
                     FilterChip(
@@ -118,7 +125,7 @@ fun RefreshActivityPanel(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+                    .horizontalScroll(storeScrollState),
             ) {
                 stores.forEach { store ->
                     FilterChip(
@@ -136,10 +143,10 @@ fun RefreshActivityPanel(
                         .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    if (visibleLogs.isEmpty()) {
+                    if (displayedLogs.isEmpty()) {
                         Text(if (logs.isEmpty()) "No refresh activity yet." else "No matching refresh activity.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    visibleLogs.forEach { log ->
+                    displayedLogs.forEach { log ->
                         val severityColor = when (log.severity) {
                             "error" -> MaterialTheme.colorScheme.error
                             "warning" -> Color(0xFFFFB74D)
@@ -193,8 +200,9 @@ private fun storeColor(store: String?): Color = when (store) {
     else -> Color(0xFFB0B8C2)
 }
 
-private fun formatLogTime(timestamp: Long): String =
-    SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(timestamp))
+private fun formatLogTime(timestamp: Long): String = synchronized(logTimeFormat) {
+    logTimeFormat.format(Date(timestamp))
+}
 
 private fun formatLog(log: RefreshActivityLogEntity): String =
     "${formatLogTime(log.timestamp)} ${log.severity.uppercase()}" +

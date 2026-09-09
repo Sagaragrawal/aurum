@@ -61,6 +61,10 @@ object CronetNetworkClient {
         }
     }
 
+    private val cronetExecutor by lazy {
+        java.util.concurrent.Executors.newFixedThreadPool(8)
+    }
+
     suspend fun executeCronetWithHeaders(
         targetUrl: String,
         headers: Map<String, String>,
@@ -148,7 +152,7 @@ object CronetNetworkClient {
             }
         }
 
-        val requestBuilder = engine.newUrlRequestBuilder(targetUrl, callback, java.util.concurrent.Executors.newSingleThreadExecutor())
+        val requestBuilder = engine.newUrlRequestBuilder(targetUrl, callback, cronetExecutor)
         headers.forEach { (k, v) ->
             requestBuilder.addHeader(k, v)
         }

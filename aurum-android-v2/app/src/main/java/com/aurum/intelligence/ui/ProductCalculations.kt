@@ -1,10 +1,14 @@
 package com.aurum.intelligence.ui
+
 import com.aurum.intelligence.data.db.*
 import com.aurum.intelligence.data.engine.*
 import com.aurum.intelligence.data.model.*
 import com.aurum.intelligence.data.repository.*
 import com.aurum.intelligence.data.validation.*
 
+import androidx.compose.runtime.Immutable
+import java.text.NumberFormat
+import java.util.Locale
 import kotlin.math.abs
 
 enum class PurityFilter(val label: String) { K24("24K"), K22("22K"), Other("Other") }
@@ -34,6 +38,7 @@ enum class SortDirection { Ascending, Descending }
 
 enum class DealMode(val label: String) { Percent("%"), RupeesPerGram("Rs/g") }
 
+@Immutable
 data class WatchlistQuery(
     val purity: PurityFilter = PurityFilter.K24,
     val search: String = "",
@@ -45,6 +50,7 @@ data class WatchlistQuery(
     val direction: SortDirection = SortDirection.Ascending,
 )
 
+@Immutable
 data class DealCandidate(
     val product: ProductEntity,
     val effectiveTotal: Double,
@@ -56,25 +62,37 @@ data class DealCandidate(
     val isSteal: Boolean get() = rupeesDelta < 0
 }
 
+@Immutable
+data class WatchlistQueryResult(
+    val base: List<ProductEntity>,
+    val counts: Map<QuickFilter, Int>,
+    val visible: List<ProductEntity>,
+    val availableProducts: List<ProductEntity>,
+    val unavailableProducts: List<ProductEntity>,
+)
+
 object ProductCalculations {
-    // Single authoritative "trustworthy right now" window, shared by the Live quick filter and Deal
-    // Radar so both mean the same thing: a live-priced observation older than this is not shown as
-    // currently live.
     val LIVE_FRESHNESS_MILLIS: Long get() = ScraperConfigProvider.get().policy.liveFreshnessMillis
 
-    fun isUnavailable(product: ProductEntity): Boolean =
-        !product.deliverable ||
+    fun isUnavailable(product: ProductEntity): Boolean {
+        if (!product.deliverable ||
             product.status == "unavailable" ||
             product.status == "out_of_stock" ||
-            ProductAvailability.isUnavailableName(product.name) ||
-            product.name.contains("unserviceable", ignoreCase = true) ||
-            product.name.contains("not deliverable", ignoreCase = true) ||
-            product.name.contains("out of stock", ignoreCase = true) ||
-            product.name.contains("outofstock", ignoreCase = true) ||
-            product.name.contains("out_of_stock", ignoreCase = true) ||
-            product.name.contains("sold out", ignoreCase = true) ||
-            product.name.contains("soldout", ignoreCase = true) ||
             (product.grams != null && product.grams <= 0)
+        ) return true
+
+        val lowerName = product.name.lowercase()
+        if (lowerName.contains("unserviceable") ||
+            lowerName.contains("not deliverable") ||
+            lowerName.contains("out of stock") ||
+            lowerName.contains("outofstock") ||
+            lowerName.contains("out_of_stock") ||
+            lowerName.contains("sold out") ||
+            lowerName.contains("soldout")
+        ) return true
+
+        return ProductAvailability.isUnavailableName(product.name)
+    }
 
     fun displayName(product: ProductEntity): String = ProductAvailability.displayName(product.name)
 
@@ -109,6 +127,9 @@ object ProductCalculations {
 
     fun baseFiltered(products: List<ProductEntity>, query: WatchlistQuery): List<ProductEntity> {
         val needle = query.search.trim().lowercase()
+        if (needle.isEmpty() && query.stores.isEmpty() && query.minimumGrams == null && query.maximumGrams == null) {
+            return products
+        }
         return products.filter { product ->
             (query.stores.isEmpty() || product.store in query.stores) &&
                 (needle.isEmpty() || listOfNotNull(
@@ -131,9 +152,60 @@ object ProductCalculations {
         nowMillis: Long = System.currentTimeMillis(),
     ): Map<QuickFilter, Int> {
         val base = baseFiltered(products, query)
-        return QuickFilter.entries.associateWith { filter ->
-            base.count { matchesQuickFilter(it, filter, benchmark24, benchmark22, nowMillis) }
+        val counts = QuickFilter.entries.associateWith { 0 }.toMutableMap()
+        for (product in base) {
+            for (filter in QuickFilter.entries) {
+                if (matchesQuickFilter(product, filter, benchmark24, benchmark22, nowMillis)) {
+                    counts[filter] = (counts[filter] ?: 0) + 1
+                }
+            }
         }
+        return counts
+    }
+
+    fun computeWatchlistQuery(
+        products: List<ProductEntity>,
+        query: WatchlistQuery,
+        benchmark24: Double?,
+        benchmark22: Double?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): WatchlistQueryResult {
+        val base = baseFiltered(products, query)
+        val counts = QuickFilter.entries.associateWith { 0 }.toMutableMap()
+
+        val filtered = ArrayList<ProductEntity>(base.size)
+        for (product in base) {
+            for (filter in QuickFilter.entries) {
+                if (matchesQuickFilter(product, filter, benchmark24, benchmark22, nowMillis)) {
+                    counts[filter] = (counts[filter] ?: 0) + 1
+                }
+            }
+            if (matchesQuickFilter(product, query.quickFilter, benchmark24, benchmark22, nowMillis)) {
+                if (query.quickFilter == QuickFilter.BelowBullion || matchesPurity(product, query.purity)) {
+                    filtered.add(product)
+                }
+            }
+        }
+
+        filtered.sortWith(productComparator(query.sort, query.direction, benchmark24, benchmark22))
+
+        val available = ArrayList<ProductEntity>(filtered.size)
+        val unavailable = ArrayList<ProductEntity>()
+        for (p in filtered) {
+            if (isUnavailable(p)) {
+                unavailable.add(p)
+            } else {
+                available.add(p)
+            }
+        }
+
+        return WatchlistQueryResult(
+            base = base,
+            counts = counts,
+            visible = filtered,
+            availableProducts = available,
+            unavailableProducts = unavailable,
+        )
     }
 
     fun filteredAndSorted(
@@ -142,12 +214,7 @@ object ProductCalculations {
         benchmark24: Double?,
         benchmark22: Double?,
         nowMillis: Long = System.currentTimeMillis(),
-    ): List<ProductEntity> = baseFiltered(products, query)
-        .asSequence()
-        .filter { matchesQuickFilter(it, query.quickFilter, benchmark24, benchmark22, nowMillis) }
-        .filter { query.quickFilter == QuickFilter.BelowBullion || matchesPurity(it, query.purity) }
-        .sortedWith(productComparator(query.sort, query.direction, benchmark24, benchmark22))
-        .toList()
+    ): List<ProductEntity> = computeWatchlistQuery(products, query, benchmark24, benchmark22, nowMillis).visible
 
     fun deals(
         products: List<ProductEntity>,

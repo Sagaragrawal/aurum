@@ -1,4 +1,5 @@
 package com.aurum.intelligence.ui
+
 import com.aurum.intelligence.data.db.*
 import com.aurum.intelligence.data.engine.*
 import com.aurum.intelligence.data.model.*
@@ -61,12 +62,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -76,8 +78,24 @@ import com.aurum.intelligence.ui.theme.AurumRed
 import kotlinx.coroutines.delay
 import java.text.NumberFormat
 import java.util.Locale
-import androidx.compose.ui.platform.LocalUriHandler
 import kotlin.math.abs
+
+private val indianCurrencyFormat by lazy {
+    NumberFormat.getNumberInstance(Locale.forLanguageTag("en-IN")).apply {
+        maximumFractionDigits = 0
+        minimumFractionDigits = 0
+    }
+}
+
+private val usGramFormat by lazy {
+    NumberFormat.getNumberInstance(Locale.US)
+}
+
+private fun formatMoney(value: Double?): String = value?.takeIf { it.isFinite() }?.let {
+    "Rs ${indianCurrencyFormat.format(it)}"
+} ?: "--"
+
+private fun formatGrams(value: Double): String = "${usGramFormat.format(value)}g"
 
 @Composable
 fun CompactBottomNavigation(
@@ -111,8 +129,8 @@ fun CompactBottomNavigation(
             )
             BottomNavItem(
                 selected = browserSelected,
-                label = "Browser",
-                icon = { Icon(Icons.Outlined.Refresh, contentDescription = "Browser", modifier = Modifier.size(21.dp)) },
+                label = "Activity",
+                icon = { Icon(Icons.Outlined.Refresh, contentDescription = "Activity", modifier = Modifier.size(21.dp)) },
                 onClick = onBrowser,
             )
         }
@@ -158,11 +176,11 @@ fun ProductWatchlistScreen(
     products: List<ProductEntity>,
     sources: List<BullionSourceEntity>,
     productMessage: String?,
-    refreshActivity: List<RefreshActivityLogEntity>,
     model: AurumViewModel,
     modifier: Modifier = Modifier,
     onRefresh: (RefreshRequest) -> Unit,
-    onClearRefreshActivity: () -> Unit,
+    refreshActivity: List<RefreshActivityLogEntity> = emptyList(),
+    onClearRefreshActivity: () -> Unit = {},
 ) {
     var addOpen by rememberSaveable { mutableStateOf(false) }
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -175,19 +193,23 @@ fun ProductWatchlistScreen(
     var sort by rememberSaveable { mutableStateOf(ProductSort.PricePerGram) }
     var direction by rememberSaveable { mutableStateOf(SortDirection.Ascending) }
     var selectedStores by remember { mutableStateOf(emptySet<String>()) }
+
     val stores = remember(products) { products.map(ProductEntity::store).distinct().sorted() }
     val storesSet = remember(stores) { stores.toSet() }
     val activeSelectedStores = remember(selectedStores, storesSet) {
         if (selectedStores.isEmpty()) storesSet else selectedStores.intersect(storesSet)
     }
+
     LaunchedEffect(pendingDeleteId) {
         if (pendingDeleteId != null) {
             delay(ScraperConfigProvider.get().delays.uiUndoTimeoutMs)
             pendingDeleteId = null
         }
     }
+
     val benchmark24 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price24 })) }
     val benchmark22 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price22 })) }
+
     val query = remember(purity, search, minimumGrams, maximumGrams, activeSelectedStores, quickFilter, sort, direction) {
         WatchlistQuery(
             purity = purity,
@@ -200,13 +222,47 @@ fun ProductWatchlistScreen(
             direction = direction,
         )
     }
-    val base = remember(products, query) { ProductCalculations.baseFiltered(products, query) }
-    val counts = remember(products, query, benchmark24, benchmark22) { ProductCalculations.quickCounts(products, query, benchmark24, benchmark22) }
-    val visible = remember(products, query, benchmark24, benchmark22) { ProductCalculations.filteredAndSorted(products, query, benchmark24, benchmark22) }
+
+    val queryResult = remember(products, query, benchmark24, benchmark22) {
+        ProductCalculations.computeWatchlistQuery(products, query, benchmark24, benchmark22)
+    }
+
+    val base = queryResult.base
+    val counts = queryResult.counts
+    val visible = queryResult.visible
+    val availableProducts = queryResult.availableProducts
+    val unavailableProducts = queryResult.unavailableProducts
+
     val storeCounts = remember(products, stores) { stores.associateWith { st -> products.count { it.store == st } } }
+    val purityCounts = remember(base) {
+        var k24 = 0
+        var k22 = 0
+        var other = 0
+        for (product in base) {
+            when (ProductCalculations.productKarat(product)) {
+                24 -> k24++
+                22 -> k22++
+                else -> other++
+            }
+        }
+        mapOf(PurityFilter.K24 to k24, PurityFilter.K22 to k22, PurityFilter.Other to other)
+    }
+
     val editingProduct = remember(products, editingId) { products.firstOrNull { it.id == editingId } }
-    val availableProducts = remember(visible) { visible.filterNot { ProductCalculations.isUnavailable(it) } }
-    val unavailableProducts = remember(visible) { visible.filter { ProductCalculations.isUnavailable(it) } }
+
+    val onEditProduct = remember(model) { { id: String -> model.clearProductMessage(); editingId = id } }
+    val onRetryProduct = remember(onRefresh) { { product: ProductEntity -> onRefresh(RefreshRequest.storeRetry(product)) } }
+    val onCancelDeleteProduct = remember { { pendingDeleteId = null } }
+    val onDeleteProduct = remember(model, pendingDeleteId) {
+        { id: String ->
+            if (pendingDeleteId == id) {
+                model.deleteProduct(id)
+                pendingDeleteId = null
+            } else {
+                pendingDeleteId = id
+            }
+        }
+    }
 
     if (addOpen) {
         AddProductDialog(
@@ -258,7 +314,7 @@ fun ProductWatchlistScreen(
                     ) { Text("Selection (${visible.size})") }
                 }
                 item {
-                    val staleCount = visible.count { it.status.lowercase() in setOf("stale", "unverified", "failed", "unavailable") }
+                    val staleCount = remember(visible) { visible.count { it.status.lowercase() in setOf("stale", "unverified", "failed", "unavailable") } }
                     OutlinedButton(
                         onClick = { onRefresh(RefreshRequest.staleOnly(visible)) },
                         enabled = staleCount > 0,
@@ -267,22 +323,9 @@ fun ProductWatchlistScreen(
             }
         }
         item {
-            RefreshActivityPanel(
-                logs = refreshActivity,
-                onClear = onClearRefreshActivity,
-                initiallyExpanded = false,
-            )
-        }
-        item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(PurityFilter.entries) { option ->
-                    val count = base.count { product ->
-                        when (option) {
-                            PurityFilter.K24 -> ProductCalculations.productKarat(product) == 24
-                            PurityFilter.K22 -> ProductCalculations.productKarat(product) == 22
-                            PurityFilter.Other -> ProductCalculations.productKarat(product) !in setOf(24, 22)
-                        }
-                    }
+                    val count = purityCounts[option] ?: 0
                     FilterChip(selected = purity == option, onClick = { purity = option }, label = { Text("${option.label}  $count", maxLines = 1) })
                 }
             }
@@ -329,7 +372,7 @@ fun ProductWatchlistScreen(
                     FilterChip(
                         selected = quickFilter == option,
                         onClick = { quickFilter = option },
-                        label = { Text("${option.label}  ${counts.getValue(option)}", maxLines = 1) },
+                        label = { Text("${option.label}  ${counts[option] ?: 0}", maxLines = 1) },
                     )
                 }
             }
@@ -361,17 +404,10 @@ fun ProductWatchlistScreen(
                 benchmark24 = benchmark24,
                 benchmark22 = benchmark22,
                 deletePending = pendingDeleteId == product.id,
-                onEdit = { model.clearProductMessage(); editingId = product.id },
-                onRetry = { onRefresh(RefreshRequest.storeRetry(product)) },
-                onCancelDelete = { pendingDeleteId = null },
-                onDelete = {
-                    if (pendingDeleteId == product.id) {
-                        model.deleteProduct(product.id)
-                        pendingDeleteId = null
-                    } else {
-                        pendingDeleteId = product.id
-                    }
-                },
+                onEdit = onEditProduct,
+                onRetry = onRetryProduct,
+                onCancelDelete = onCancelDeleteProduct,
+                onDelete = onDeleteProduct,
             )
         }
         if (quickFilter == QuickFilter.All && unavailableProducts.isNotEmpty()) {
@@ -383,15 +419,10 @@ fun ProductWatchlistScreen(
                 benchmark24 = benchmark24,
                 benchmark22 = benchmark22,
                 deletePending = pendingDeleteId == product.id,
-                onEdit = { model.clearProductMessage(); editingId = product.id },
-                onRetry = { onRefresh(RefreshRequest.storeRetry(product)) },
-                onCancelDelete = { pendingDeleteId = null },
-                onDelete = {
-                    if (pendingDeleteId == product.id) {
-                        model.deleteProduct(product.id)
-                        pendingDeleteId = null
-                    } else pendingDeleteId = product.id
-                },
+                onEdit = onEditProduct,
+                onRetry = onRetryProduct,
+                onCancelDelete = onCancelDeleteProduct,
+                onDelete = onDeleteProduct,
             )
         }
         item {
@@ -423,15 +454,25 @@ private fun MobileProductCard(
     benchmark24: Double?,
     benchmark22: Double?,
     deletePending: Boolean,
-    onEdit: () -> Unit,
-    onRetry: () -> Unit,
+    onEdit: (String) -> Unit,
+    onRetry: (ProductEntity) -> Unit,
     onCancelDelete: () -> Unit,
-    onDelete: () -> Unit,
+    onDelete: (String) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
-    val effectiveTotal = ProductCalculations.effectiveTotal(product)
-    val effectivePerGram = ProductCalculations.effectivePerGram(product)
-    val delta = ProductCalculations.benchmarkPercentDelta(product, benchmark24, benchmark22)
+    val effectiveTotal = remember(product) { ProductCalculations.effectiveTotal(product) }
+    val effectivePerGram = remember(product) { ProductCalculations.effectivePerGram(product) }
+    val delta = remember(product, benchmark24, benchmark22) { ProductCalculations.benchmarkPercentDelta(product, benchmark24, benchmark22) }
+    val isUnavailable = remember(product) { ProductCalculations.isUnavailable(product) }
+    val displayName = remember(product.name) { ProductCalculations.displayName(product) }
+    val subtitleText = remember(product) {
+        listOfNotNull(
+            storeLabel(product.store),
+            product.grams?.let(::formatGrams),
+            ProductCalculations.productKarat(product)?.let { "${it}K" }
+        ).joinToString(" | ")
+    }
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -441,7 +482,7 @@ private fun MobileProductCard(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f)) {
                     Text(
-                        ProductCalculations.displayName(product),
+                        displayName,
                         modifier = Modifier.clickable { uriHandler.openUri(product.canonicalUrl) },
                         color = MaterialTheme.colorScheme.primary,
                         textDecoration = TextDecoration.Underline,
@@ -452,14 +493,14 @@ private fun MobileProductCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        listOfNotNull(storeLabel(product.store), product.grams?.let(::formatGrams), ProductCalculations.productKarat(product)?.let { "${it}K" }).joinToString(" | "),
+                        subtitleText,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                StatusBadge(product.store, if (ProductCalculations.isUnavailable(product)) "unavailable" else product.status)
+                StatusBadge(product.store, if (isUnavailable) "unavailable" else product.status)
             }
             Spacer(Modifier.height(11.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(AurumLine))
@@ -486,7 +527,7 @@ private fun MobileProductCard(
             }
             if (deletePending) {
                 Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(modifier = Modifier.weight(1f).fillMaxHeight(), onClick = onDelete) {
+                    Button(modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { onDelete(product.id) }) {
                         Text("Confirm delete", maxLines = 1, softWrap = false)
                     }
                     TextButton(modifier = Modifier.fillMaxHeight(), onClick = onCancelDelete) {
@@ -495,13 +536,17 @@ private fun MobileProductCard(
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    IconButton(modifier = Modifier.size(48.dp), onClick = onEdit) { Icon(Icons.Outlined.Edit, contentDescription = "Edit ${product.name}") }
-                    TextButton(modifier = Modifier.height(48.dp), onClick = onRetry) {
+                    IconButton(modifier = Modifier.size(48.dp), onClick = { onEdit(product.id) }) {
+                        Icon(Icons.Outlined.Edit, contentDescription = "Edit ${product.name}")
+                    }
+                    TextButton(modifier = Modifier.height(48.dp), onClick = { onRetry(product) }) {
                         Icon(Icons.Outlined.Refresh, contentDescription = null)
                         Spacer(Modifier.width(4.dp))
                         Text("Retry store")
                     }
-                    IconButton(modifier = Modifier.size(48.dp), onClick = onDelete) { Icon(Icons.Outlined.Delete, contentDescription = "Delete ${product.name}", tint = AurumRed) }
+                    IconButton(modifier = Modifier.size(48.dp), onClick = { onDelete(product.id) }) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "Delete ${product.name}", tint = AurumRed)
+                    }
                 }
             }
         }
@@ -552,10 +597,13 @@ fun DealRadarPanel(
 ) {
     val configuredThreshold = if (mode == DealMode.Percent) percentThreshold else rupeesThreshold
     var thresholdText by rememberSaveable(mode) { mutableStateOf(configuredThreshold.toString()) }
-    val benchmark24 = BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price24 }))
-    val benchmark22 = BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price22 }))
+    val benchmark24 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price24 })) }
+    val benchmark22 = remember(sources) { BullionBenchmark.blend(BullionBenchmark.cleanRates(sources.mapNotNull { it.price22 })) }
     val threshold = thresholdText.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
-    val deals = ProductCalculations.deals(products, benchmark24, benchmark22, mode, threshold)
+    val deals = remember(products, benchmark24, benchmark22, mode, threshold) {
+        ProductCalculations.deals(products, benchmark24, benchmark22, mode, threshold)
+    }
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -635,9 +683,3 @@ private fun storeLabel(store: String): String = when (store) {
     "shopsy.in" -> "Shopsy"
     else -> store.substringBefore('.').replaceFirstChar(Char::uppercase)
 }
-
-private fun formatMoney(value: Double?): String = value?.takeIf { it.isFinite() }?.let {
-    "Rs ${NumberFormat.getNumberInstance(Locale.forLanguageTag("en-IN")).format(it)}"
-} ?: "--"
-
-private fun formatGrams(value: Double): String = "${NumberFormat.getNumberInstance(Locale.US).format(value)}g"

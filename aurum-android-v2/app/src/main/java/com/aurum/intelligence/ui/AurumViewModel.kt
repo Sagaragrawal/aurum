@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -32,11 +33,13 @@ class AurumViewModel(
     private val bullionRepository: BullionRepository,
     private val refreshActivityRepository: RefreshActivityRepository,
 ) : ViewModel() {
-    val products: StateFlow<List<ProductEntity>> = repository.products.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = emptyList(),
-    )
+    val products: StateFlow<List<ProductEntity>> = repository.products
+        .sample(250)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
     val mergeEvents = repository.mergeEvents
     val bullionSources: StateFlow<List<BullionSourceEntity>> = bullionRepository.sources.stateIn(
         scope = viewModelScope,
@@ -49,11 +52,13 @@ class AurumViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList(),
     )
-    val refreshActivity: StateFlow<List<RefreshActivityLogEntity>> = refreshActivityRepository.logs.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = emptyList(),
-    )
+    val refreshActivity: StateFlow<List<RefreshActivityLogEntity>> = refreshActivityRepository.logs
+        .sample(250)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
     val settings: StateFlow<AppSettings> = settingsRepository.settings.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

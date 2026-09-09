@@ -263,13 +263,11 @@ fun AurumApp(startupWarning: String? = null, onRetryStartup: () -> Unit = {}) {
                     products = products,
                     sources = bullionSources,
                     productMessage = productMessage,
-                    refreshActivity = refreshActivity,
                     model = model,
                     modifier = Modifier.weight(1f),
                     onRefresh = { request ->
                         refreshEverything(request.stores.takeIf { it.isNotEmpty() })
                     },
-                    onClearRefreshActivity = model::clearRefreshActivity,
                 )
                 AppSection.Browser -> BrowserDashboard(
                     productRefreshRunning = refreshing,
@@ -293,11 +291,13 @@ private fun BrowserDashboard(
     onClearLogs: () -> Unit,
     showRefreshActivity: Boolean,
 ) {
-    val recentStoreEvents = logs.asReversed()
-        .filter { it.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in", "tanishq") }
-        .filter { it.message.contains("Coverage") || it.message.contains("Existing prices preserved") || it.message.contains("Rendered bullion rate saved") }
-        .distinctBy { it.store }
-        .take(5)
+    val recentStoreEvents = remember(logs) {
+        logs.asReversed()
+            .filter { it.store in setOf("ajio.com", "amazon.in", "flipkart.com", "myntra.com", "shopsy.in", "tanishq") }
+            .filter { it.message.contains("Coverage") || it.message.contains("Existing prices preserved") || it.message.contains("Rendered bullion rate saved") }
+            .distinctBy { it.store }
+            .take(5)
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -305,8 +305,8 @@ private fun BrowserDashboard(
     ) {
         item {
             Column {
-                Text("BROWSER ACTIVITY", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text("Retailer refresh", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("REFRESH ACTIVITY", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("Store activity", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                 Text(
                     when {
                         productRefreshRunning && bullionRefreshRunning -> "Products and bullion are refreshing in the background"
