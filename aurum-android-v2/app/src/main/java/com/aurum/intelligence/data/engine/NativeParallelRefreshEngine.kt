@@ -157,6 +157,65 @@ class NativeParallelRefreshEngine(
     }
 
     // =========================================================================
+    private suspend fun fetchStorePageWithRecovery(
+        store: String,
+        url: String,
+        headers: Map<String, String>,
+        maxRetries: Int = 3,
+    ): ProductFetchResponse {
+        var currentHeaders = headers
+        var attempt = 0
+        var delayMs = 600L
+
+        while (attempt < maxRetries) {
+            attempt++
+            val response = runCatching {
+                CronetNetworkClient.executeCronetWithHeaders(url, currentHeaders)
+            }.getOrElse { e ->
+                ProductFetchResponse(status = 500, body = e.message.orEmpty(), headers = emptyMap(), protocol = "error", durationMs = 0)
+            }
+
+            val isBlocked = response.status in setOf(403, 429, 503) ||
+                (response.body.isNotBlank() && (
+                    response.body.contains("request blocked", ignoreCase = true) ||
+                    response.body.contains("access denied", ignoreCase = true) ||
+                    response.body.contains("captcha", ignoreCase = true) ||
+                    response.body.contains("perimeterx", ignoreCase = true)
+                ))
+
+            if (response.status in 200..299 && response.body.isNotBlank() && !isBlocked) {
+                return response
+            }
+
+            if (attempt < maxRetries) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Warning,
+                    store,
+                    "[$store] Request returned HTTP ${response.status} (attempt $attempt/$maxRetries). Dropping cookies & resetting session...",
+                )
+
+                // Drop session & cookies
+                CronetNetworkClient.resetSession()
+
+                // Re-build fresh headers
+                val config = ScraperConfigProvider.get()
+                val baseStoreKey = store.substringBefore('.').lowercase()
+                val freshBaseHeaders = config.stores[baseStoreKey]?.headers?.takeIf { it.isNotEmpty() }
+                    ?: config.network.desktopHeaders
+                val extraHeaders = headers.filterKeys { it.lowercase().startsWith("x-") || it.lowercase() == "pincode" || it.lowercase() == "referer" }
+                currentHeaders = freshBaseHeaders + extraHeaders
+
+                delay(delayMs)
+                delayMs = (delayMs * 2).coerceAtMost(3000L)
+            } else {
+                return response
+            }
+        }
+
+        return ProductFetchResponse(status = 403, body = "", headers = emptyMap(), protocol = "error", durationMs = 0)
+    }
+
+    // =========================================================================
     // AJIO ENGINE (4-5 Target Links: Category 8303, Jewellery, Girls, Boys, Search)
     // =========================================================================
     private suspend fun refreshAjio(
@@ -166,215 +225,209 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
-        runCatching { database.dao().markAllStoreProductsStale("ajio.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
         var isBlocked = false
-        val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val config = ScraperConfigProvider.get()
-        val ajioTargets = config.ajioTargets
-        val safetyCeiling = maxPages.coerceAtLeast(config.limits.maxPagesPerStore)
+        return try {
+            runCatching { database.dao().markAllStoreProductsStale("ajio.com") }
+            val distinctPids = mutableSetOf<String>()
+            val config = ScraperConfigProvider.get()
+            val ajioTargets = config.ajioTargets
+            val safetyCeiling = maxPages.coerceAtLeast(config.limits.maxPagesPerStore)
+            val ajioApiHeaders = config.network.cronetApiRequestHeaders + LocationHelper.buildPincodeHeaders(pincode)
 
-        for (target in ajioTargets) {
-            val urlStart = System.currentTimeMillis()
-            var targetDiscovered = 0
-            var targetValid = 0
-            val targetBaseUrl = if (!target.url.contains("pincode=")) "${target.url}&pincode=$pincode" else target.url
-            try {
-                activityRepository?.log(
-                    RefreshLogSeverity.Info,
-                    "ajio.com",
-                    "[AJIO] DISCOVERING page=0 target=${target.name}..."
-                )
-                plpRequests++
-                var resp0 = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=0", pincode)
-                if (resp0.status == 403 || resp0.status == 429) {
-                    delay(config.delays.ajioRateLimitBackoffMs)
-                    plpRequests++
-                    resp0 = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=0", pincode)
-                }
-
-                if (resp0.status == 403) {
-                    lastError = "HTTP 403 / BLOCKED"
-                    activityRepository?.log(
-                        RefreshLogSeverity.Warning,
-                        "ajio.com",
-                        "[AJIO] HTTP status=403 state=BLOCKED destructiveReconciliation=false target=${target.name}"
-                    )
-                    continue
-                }
-
-                if (resp0.status in 200..299) {
-                    val parsed0 = AjioNativeParser.parse(resp0.body, bullionRate24)
-                    val p0Discovered = parsed0.candidates.size
-                    val p0Saved = saveCandidates("ajio.com", parsed0.candidates, pincode, distinctPids)
-                    targetDiscovered += p0Discovered
-                    targetValid += p0Saved
-                    discovered += p0Discovered
-                    valid += p0Saved
-
+            for (target in ajioTargets) {
+                val urlStart = System.currentTimeMillis()
+                var targetDiscovered = 0
+                var targetValid = 0
+                val targetBaseUrl = if (!target.url.contains("pincode=")) "${target.url}&pincode=$pincode" else target.url
+                try {
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "ajio.com",
-                        "[AJIO] DISCOVERING page=0 HTTP status=200 discovered=$p0Discovered accepted=$p0Saved totalAvailable=${parsed0.totalResults}"
+                        "[AJIO] DISCOVERING page=0 target=${target.name}..."
                     )
+                    plpRequests++
+                    val resp0 = fetchStorePageWithRecovery("ajio.com", "${targetBaseUrl}&currentPage=0", ajioApiHeaders)
 
-                    DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_0", resp0.body, "json")
-                    recordRawPayload(
-                        id = UUID.randomUUID().toString(),
-                        store = "ajio_master_${target.name.replace(" ", "_")}_page_0",
-                        json = resp0.body,
-                    )
+                    if (resp0.status in 200..299 && resp0.body.isNotBlank()) {
+                        val parsed0 = AjioNativeParser.parse(resp0.body, bullionRate24)
+                        val p0Discovered = parsed0.candidates.size
+                        val p0Saved = saveCandidates("ajio.com", parsed0.candidates, pincode, distinctPids)
+                        targetDiscovered += p0Discovered
+                        targetValid += p0Saved
+                        discovered += p0Discovered
+                        valid += p0Saved
 
-                    val totalPagesFromSource = parsed0.totalPages
-                    val maxPageLimit = if (totalPagesFromSource > 0) minOf(totalPagesFromSource, safetyCeiling) else safetyCeiling
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "ajio.com",
+                            "[AJIO] DISCOVERING page=0 HTTP status=200 discovered=$p0Discovered accepted=$p0Saved totalAvailable=${parsed0.totalResults}"
+                        )
 
-                    if (maxPageLimit > 1) {
-                        for (page in 1 until maxPageLimit) {
-                            delay(config.delays.ajioPageDelayMs)
-                            activityRepository?.log(
-                                RefreshLogSeverity.Info,
-                                "ajio.com",
-                                "[AJIO] DISCOVERING page=$page target=${target.name}..."
-                            )
-                            plpRequests++
-                            var pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
-                            if (pResp.status == 403 || pResp.status == 429) {
-                                CronetNetworkClient.resetSession()
-                                delay(config.delays.ajioRateLimitBackoffMs)
-                                plpRequests++
-                                pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
-                            }
-                            if (pResp.status == 403) {
-                                CronetNetworkClient.resetSession()
-                                delay(config.delays.ajioRateLimitBackoffMs)
-                                pResp = CronetNetworkClient.executeCronetApiRequest("${targetBaseUrl}&currentPage=$page", pincode)
-                            }
+                        DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_0", resp0.body, "json")
+                        recordRawPayload(
+                            id = UUID.randomUUID().toString(),
+                            store = "ajio_master_${target.name.replace(" ", "_")}_page_0",
+                            json = resp0.body,
+                        )
 
-                            if (pResp.status in 200..299) {
-                                DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_$page", pResp.body, "json")
-                                recordRawPayload(
-                                    id = UUID.randomUUID().toString(),
-                                    store = "ajio_master_${target.name.replace(" ", "_")}_page_$page",
-                                    json = pResp.body,
-                                )
-                                val pParsed = AjioNativeParser.parse(pResp.body, bullionRate24)
-                                val pDiscovered = pParsed.candidates.size
-                                val pSaved = saveCandidates("ajio.com", pParsed.candidates, pincode, distinctPids)
+                        val totalPagesFromSource = parsed0.totalPages
+                        val maxPageLimit = if (totalPagesFromSource > 0) minOf(totalPagesFromSource, safetyCeiling) else safetyCeiling
 
-                                targetDiscovered += pDiscovered
-                                targetValid += pSaved
-                                discovered += pDiscovered
-                                valid += pSaved
-
+                        if (maxPageLimit > 1) {
+                            for (page in 1 until maxPageLimit) {
+                                delay(config.delays.ajioPageDelayMs)
                                 activityRepository?.log(
                                     RefreshLogSeverity.Info,
                                     "ajio.com",
-                                    "[AJIO] DISCOVERING page=$page HTTP status=200 discovered=$pDiscovered accepted=$pSaved"
+                                    "[AJIO] DISCOVERING page=$page target=${target.name}..."
                                 )
+                                plpRequests++
+                                val pResp = fetchStorePageWithRecovery("ajio.com", "${targetBaseUrl}&currentPage=$page", ajioApiHeaders)
 
-                                if (pDiscovered == 0) {
+                                if (pResp.status in 200..299 && pResp.body.isNotBlank()) {
+                                    DatabaseBackupManager.saveRawPage("ajio.com", "${target.name}_page_$page", pResp.body, "json")
+                                    recordRawPayload(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "ajio_master_${target.name.replace(" ", "_")}_page_$page",
+                                        json = pResp.body,
+                                    )
+                                    val pParsed = AjioNativeParser.parse(pResp.body, bullionRate24)
+                                    val pDiscovered = pParsed.candidates.size
+                                    val pSaved = saveCandidates("ajio.com", pParsed.candidates, pincode, distinctPids)
+
+                                    targetDiscovered += pDiscovered
+                                    targetValid += pSaved
+                                    discovered += pDiscovered
+                                    valid += pSaved
+
+                                    activityRepository?.log(
+                                        RefreshLogSeverity.Info,
+                                        "ajio.com",
+                                        "[AJIO] DISCOVERING page=$page HTTP status=200 discovered=$pDiscovered accepted=$pSaved"
+                                    )
+
+                                    if (pDiscovered == 0) {
+                                        break
+                                    }
+                                } else {
+                                    lastError = "HTTP ${pResp.status}"
+                                    activityRepository?.log(
+                                        RefreshLogSeverity.Warning,
+                                        "ajio.com",
+                                        "[AJIO] page=$page returned HTTP ${pResp.status}"
+                                    )
                                     break
                                 }
-                            } else {
-                                lastError = "HTTP ${pResp.status}"
-                                activityRepository?.log(
-                                    RefreshLogSeverity.Warning,
-                                    "ajio.com",
-                                    "[AJIO] page=$page returned HTTP ${pResp.status}"
-                                )
-                                break
                             }
                         }
-                    }
 
-                    val urlElapsed = System.currentTimeMillis() - urlStart
+                        val urlElapsed = System.currentTimeMillis() - urlStart
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "ajio.com",
+                            "[AJIO] Target ${target.name} complete: $targetDiscovered discovered, $targetValid valid (${urlElapsed}ms)"
+                        )
+                    } else {
+                        lastError = "HTTP ${resp0.status}"
+                        activityRepository?.log(
+                            RefreshLogSeverity.Warning,
+                            "ajio.com",
+                            "[AJIO] ${target.name} returned HTTP ${resp0.status}"
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastError = e.message
+                    Log.e(tag, "Ajio refresh error for ${target.name}: ${e.message}", e)
                     activityRepository?.log(
-                        RefreshLogSeverity.Info,
+                        RefreshLogSeverity.Error,
                         "ajio.com",
-                        "[AJIO] Target ${target.name} complete: $targetDiscovered discovered, $targetValid valid (${urlElapsed}ms)"
-                    )
-                } else {
-                    lastError = "HTTP ${resp0.status}"
-                    activityRepository?.log(
-                        RefreshLogSeverity.Warning,
-                        "ajio.com",
-                        "[AJIO] ${target.name} returned HTTP ${resp0.status}"
+                        "[AJIO] ${target.name} failed: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                lastError = e.message
-                Log.e(tag, "Ajio refresh error for ${target.name}: ${e.message}", e)
-                activityRepository?.log(
-                    RefreshLogSeverity.Error,
-                    "ajio.com",
-                    "[AJIO] ${target.name} failed: ${e.message}"
-                )
             }
-        }
 
-        // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
-        val pdpResult = refreshStorePdp("ajio.com", start, pincode)
-        valid += pdpResult.successful
+            // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
+            val pdpResult = refreshStorePdp("ajio.com", start, pincode)
+            valid += pdpResult.successful
 
-        val duration = System.currentTimeMillis() - start
-        val result = StoreRefreshProgress(
-            store = "ajio.com",
-            itemsDiscovered = discovered,
-            itemsValid = valid,
-            durationMs = duration,
-            isComplete = true,
-            error = lastError,
-            plpRequests = plpRequests,
-            pdpRequests = pdpResult.requests,
-            pdpSuccessful = pdpResult.successful,
-            pdpFailed = pdpResult.failed,
-            pdpRequired = pdpResult.required,
-            plpProcessedFully = valid - pdpResult.successful,
-        )
-        onProgress(result)
-        internalDatabase?.dao()?.insertExecutionMetrics(
-            ScraperExecutionMetricsEntity(
-                timestamp = System.currentTimeMillis(),
+            val duration = System.currentTimeMillis() - start
+            val result = StoreRefreshProgress(
                 store = "ajio.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = lastError,
                 plpRequests = plpRequests,
-                plpProductsDiscovered = discovered,
                 pdpRequests = pdpResult.requests,
                 pdpSuccessful = pdpResult.successful,
                 pdpFailed = pdpResult.failed,
                 pdpRequired = pdpResult.required,
                 plpProcessedFully = valid - pdpResult.successful,
-                is403Encountered = isBlocked || (pdpResult.failed > 0 && lastError?.contains("403") == true),
-                durationMs = duration,
             )
-        )
+            onProgress(result)
+            runCatching {
+                internalDatabase?.dao()?.insertExecutionMetrics(
+                    ScraperExecutionMetricsEntity(
+                        timestamp = System.currentTimeMillis(),
+                        store = "ajio.com",
+                        plpRequests = plpRequests,
+                        plpProductsDiscovered = discovered,
+                        pdpRequests = pdpResult.requests,
+                        pdpSuccessful = pdpResult.successful,
+                        pdpFailed = pdpResult.failed,
+                        pdpRequired = pdpResult.required,
+                        plpProcessedFully = valid - pdpResult.successful,
+                        is403Encountered = isBlocked || (pdpResult.failed > 0 && lastError?.contains("403") == true),
+                        durationMs = duration,
+                    )
+                )
+            }
 
-        if (isBlocked) {
-            activityRepository?.log(
-                RefreshLogSeverity.Warning,
-                "ajio.com",
-                "[AJIO] BLOCKED / PARTIAL_SUCCESS: Existing catalogue preserved without destructive reconciliation (${duration}ms)",
+            if (isBlocked) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Warning,
+                    "ajio.com",
+                    "[AJIO] BLOCKED / PARTIAL_SUCCESS: Existing catalogue preserved (${duration}ms)",
+                )
+            } else if (valid > 0 || discovered > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "ajio.com",
+                    "[AJIO] SUCCESS: totalDiscovered=$discovered, totalAccepted=$valid ingested (${duration}ms)",
+                )
+            } else {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "ajio.com",
+                    "[AJIO] Existing prices preserved: catalogue scan complete (${duration}ms)",
+                )
+            }
+            context?.let { ctx ->
+                DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+            }
+            result
+        } catch (e: Throwable) {
+            val duration = System.currentTimeMillis() - start
+            val errStr = e.message ?: "Ajio error"
+            Log.e(tag, "Ajio engine error: $errStr", e)
+            activityRepository?.log(RefreshLogSeverity.Error, "ajio.com", "[AJIO] Engine error: $errStr")
+            val progress = StoreRefreshProgress(
+                store = "ajio.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = errStr,
             )
-        } else if (valid > 0 || discovered > 0) {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "ajio.com",
-                "[AJIO] SUCCESS: totalDiscovered=$discovered, totalAccepted=$valid ingested (${duration}ms)",
-            )
-        } else {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "ajio.com",
-                "[AJIO] Existing prices preserved: catalogue scan complete (${duration}ms)",
-            )
+            onProgress(progress)
+            progress
         }
-        context?.let { ctx ->
-            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
-        }
-        return result
     }
 
     // =========================================================================
@@ -387,157 +440,176 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
-        runCatching { database.dao().markAllStoreProductsStale("flipkart.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
-        val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val config = ScraperConfigProvider.get()
-        val flipkartTargets = config.flipkartTargets
-        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
-        val flipkartHeaders = (config.stores["flipkart"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
+        return try {
+            runCatching { database.dao().markAllStoreProductsStale("flipkart.com") }
+            val distinctPids = mutableSetOf<String>()
+            val config = ScraperConfigProvider.get()
+            val flipkartTargets = config.flipkartTargets
+            val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+            val flipkartHeaders = (config.stores["flipkart"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
-        for (target in flipkartTargets) {
-            val urlStart = System.currentTimeMillis()
-            val targetUrl = target.url
-            try {
-                activityRepository?.log(
-                    RefreshLogSeverity.Info,
-                    "flipkart.com",
-                    "[Flipkart] Fetching ${target.name} (page 1)..."
-                )
-                plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetWithHeaders(targetUrl, flipkartHeaders)
-                if (resp1.status in 200..299) {
-                    DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_1", resp1.body, "html")
-                    recordRawPayload(
-                        id = UUID.randomUUID().toString(),
-                        store = "flipkart_master_${target.name.replace(" ", "_")}_page_1",
-                        json = resp1.body,
-                    )
-                    val parsed1 = FlipkartNativeParser.parse(resp1.body, "flipkart.com", bullionRate24)
-                    var targetDiscovered = parsed1.candidates.size
-                    var targetValid = saveCandidates("flipkart.com", parsed1.candidates, pincode, distinctPids)
-                    discovered += targetDiscovered
-                    valid += targetValid
-
-                    val pageCap = if (target.isMinutes) 1 else minOf(30, config.limits.maxPagesPerStore)
-                    if (pageCap > 1) {
-                        var consecutiveEmptyPages = 0
-                        for (page in 2..pageCap) {
-                            delay(config.delays.flipkartPageDelayMs)
-                            val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
-                            plpRequests++
-                            activityRepository?.log(
-                                RefreshLogSeverity.Info,
-                                "flipkart.com",
-                                "[Flipkart] Fetching ${target.name} (page $page of $pageCap)..."
-                            )
-                            val resp = CronetNetworkClient.executeCronetWithHeaders("${targetUrl}$pageParam", flipkartHeaders)
-                            if (resp.status in 200..299) {
-                                DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_$page", resp.body, "html")
-                                recordRawPayload(
-                                    id = UUID.randomUUID().toString(),
-                                    store = "flipkart_master_${target.name.replace(" ", "_")}_page_$page",
-                                    json = resp.body,
-                                )
-                                val p = FlipkartNativeParser.parse(resp.body, "flipkart.com", bullionRate24)
-                                if (p.candidates.isEmpty()) {
-                                    consecutiveEmptyPages++
-                                    if (consecutiveEmptyPages >= 3) break
-                                } else {
-                                    consecutiveEmptyPages = 0
-                                }
-                                val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
-                                val s = saveCandidates("flipkart.com", newCandidates, pincode, distinctPids)
-                                discovered += newCandidates.size
-                                valid += s
-                                targetDiscovered += newCandidates.size
-                                targetValid += s
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    val urlElapsed = System.currentTimeMillis() - urlStart
+            for (target in flipkartTargets) {
+                val urlStart = System.currentTimeMillis()
+                val targetUrl = target.url
+                try {
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "flipkart.com",
-                        "[Flipkart] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        "[Flipkart] Fetching ${target.name} (page 1)..."
                     )
-                } else {
-                    lastError = "HTTP ${resp1.status}"
+                    plpRequests++
+                    val resp1 = fetchStorePageWithRecovery("flipkart.com", targetUrl, flipkartHeaders)
+                    if (resp1.status in 200..299 && resp1.body.isNotBlank()) {
+                        DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_1", resp1.body, "html")
+                        recordRawPayload(
+                            id = UUID.randomUUID().toString(),
+                            store = "flipkart_master_${target.name.replace(" ", "_")}_page_1",
+                            json = resp1.body,
+                        )
+                        val parsed1 = FlipkartNativeParser.parse(resp1.body, "flipkart.com", bullionRate24)
+                        var targetDiscovered = parsed1.candidates.size
+                        var targetValid = saveCandidates("flipkart.com", parsed1.candidates, pincode, distinctPids)
+                        discovered += targetDiscovered
+                        valid += targetValid
+
+                        val pageCap = if (target.isMinutes) 1 else minOf(30, config.limits.maxPagesPerStore)
+                        if (pageCap > 1) {
+                            var consecutiveEmptyPages = 0
+                            for (page in 2..pageCap) {
+                                delay(config.delays.flipkartPageDelayMs)
+                                val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
+                                plpRequests++
+                                activityRepository?.log(
+                                    RefreshLogSeverity.Info,
+                                    "flipkart.com",
+                                    "[Flipkart] Fetching ${target.name} (page $page of $pageCap)..."
+                                )
+                                val resp = fetchStorePageWithRecovery("flipkart.com", "${targetUrl}$pageParam", flipkartHeaders)
+                                if (resp.status in 200..299 && resp.body.isNotBlank()) {
+                                    DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_$page", resp.body, "html")
+                                    recordRawPayload(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "flipkart_master_${target.name.replace(" ", "_")}_page_$page",
+                                        json = resp.body,
+                                    )
+                                    val p = FlipkartNativeParser.parse(resp.body, "flipkart.com", bullionRate24)
+                                    if (p.candidates.isEmpty()) {
+                                        consecutiveEmptyPages++
+                                        if (consecutiveEmptyPages >= 3) break
+                                    } else {
+                                        consecutiveEmptyPages = 0
+                                    }
+                                    val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
+                                    val s = saveCandidates("flipkart.com", newCandidates, pincode, distinctPids)
+                                    discovered += newCandidates.size
+                                    valid += s
+                                    targetDiscovered += newCandidates.size
+                                    targetValid += s
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        val urlElapsed = System.currentTimeMillis() - urlStart
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "flipkart.com",
+                            "[Flipkart] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        )
+                    } else {
+                        lastError = "HTTP ${resp1.status}"
+                        activityRepository?.log(
+                            RefreshLogSeverity.Warning,
+                            "flipkart.com",
+                            "[Flipkart] ${target.name} returned HTTP ${resp1.status}"
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastError = e.message
+                    Log.e(tag, "Flipkart refresh error for ${target.name}: ${e.message}", e)
                     activityRepository?.log(
-                        RefreshLogSeverity.Warning,
+                        RefreshLogSeverity.Error,
                         "flipkart.com",
-                        "[Flipkart] ${target.name} returned HTTP ${resp1.status}"
+                        "[Flipkart] ${target.name} failed: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                lastError = e.message
-                Log.e(tag, "Flipkart refresh error for ${target.name}: ${e.message}", e)
-                activityRepository?.log(
-                    RefreshLogSeverity.Error,
-                    "flipkart.com",
-                    "[Flipkart] ${target.name} failed: ${e.message}"
-                )
             }
-        }
 
-        // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
-        val pdpResult = refreshStorePdp("flipkart.com", start, pincode)
-        valid += pdpResult.successful
+            // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
+            val pdpResult = refreshStorePdp("flipkart.com", start, pincode)
+            valid += pdpResult.successful
 
-        val duration = System.currentTimeMillis() - start
-        val result = StoreRefreshProgress(
-            store = "flipkart.com",
-            itemsDiscovered = discovered,
-            itemsValid = valid,
-            durationMs = duration,
-            isComplete = true,
-            error = lastError,
-            plpRequests = plpRequests,
-            pdpRequests = pdpResult.requests,
-            pdpSuccessful = pdpResult.successful,
-            pdpFailed = pdpResult.failed,
-            pdpRequired = pdpResult.required,
-            plpProcessedFully = valid - pdpResult.successful,
-        )
-        onProgress(result)
-        internalDatabase?.dao()?.insertExecutionMetrics(
-            ScraperExecutionMetricsEntity(
-                timestamp = System.currentTimeMillis(),
+            val duration = System.currentTimeMillis() - start
+            val result = StoreRefreshProgress(
                 store = "flipkart.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = lastError,
                 plpRequests = plpRequests,
-                plpProductsDiscovered = discovered,
                 pdpRequests = pdpResult.requests,
                 pdpSuccessful = pdpResult.successful,
                 pdpFailed = pdpResult.failed,
                 pdpRequired = pdpResult.required,
                 plpProcessedFully = valid - pdpResult.successful,
-                is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+            )
+            onProgress(result)
+            runCatching {
+                internalDatabase?.dao()?.insertExecutionMetrics(
+                    ScraperExecutionMetricsEntity(
+                        timestamp = System.currentTimeMillis(),
+                        store = "flipkart.com",
+                        plpRequests = plpRequests,
+                        plpProductsDiscovered = discovered,
+                        pdpRequests = pdpResult.requests,
+                        pdpSuccessful = pdpResult.successful,
+                        pdpFailed = pdpResult.failed,
+                        pdpRequired = pdpResult.required,
+                        plpProcessedFully = valid - pdpResult.successful,
+                        is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+                        durationMs = duration,
+                    )
+                )
+            }
+            if (valid > 0 || discovered > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "flipkart.com",
+                    "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
+                )
+            } else {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "flipkart.com",
+                    "Existing prices preserved: catalogue scan complete (${duration}ms)",
+                )
+            }
+            context?.let { ctx ->
+                DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+            }
+            result
+        } catch (e: Throwable) {
+            val duration = System.currentTimeMillis() - start
+            val errStr = e.message ?: "Flipkart error"
+            Log.e(tag, "Flipkart engine error: $errStr", e)
+            activityRepository?.log(RefreshLogSeverity.Error, "flipkart.com", "[Flipkart] Engine error: $errStr")
+            val progress = StoreRefreshProgress(
+                store = "flipkart.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
                 durationMs = duration,
+                isComplete = true,
+                error = errStr,
             )
-        )
-        if (valid > 0 || discovered > 0) {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "flipkart.com",
-                "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
-            )
-        } else {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "flipkart.com",
-                "Existing prices preserved: catalogue scan complete (${duration}ms)",
-            )
+            onProgress(progress)
+            progress
         }
-        context?.let { ctx ->
-            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
-        }
-        return result
     }
 
     // =========================================================================
@@ -550,156 +622,175 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
-        runCatching { database.dao().markAllStoreProductsStale("shopsy.in") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
-        val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val config = ScraperConfigProvider.get()
-        val shopsyTargets = config.shopsyTargets
-        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
-        val shopsyHeaders = (config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
+        return try {
+            runCatching { database.dao().markAllStoreProductsStale("shopsy.in") }
+            val distinctPids = mutableSetOf<String>()
+            val config = ScraperConfigProvider.get()
+            val shopsyTargets = config.shopsyTargets
+            val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+            val shopsyHeaders = (config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
-        for (target in shopsyTargets) {
-            val urlStart = System.currentTimeMillis()
-            val targetUrl = target.url
-            try {
-                activityRepository?.log(
-                    RefreshLogSeverity.Info,
-                    "shopsy.in",
-                    "[Shopsy] Fetching ${target.name} (page 1)..."
-                )
-                plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetWithHeaders(targetUrl, shopsyHeaders)
-                if (resp1.status in 200..299) {
-                    DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_1", resp1.body, "html")
-                    recordRawPayload(
-                        id = UUID.randomUUID().toString(),
-                        store = "shopsy_master_${target.name.replace(" ", "_")}_page_1",
-                        json = resp1.body,
-                    )
-                    val parsed1 = FlipkartNativeParser.parse(resp1.body, "shopsy.in", bullionRate24)
-                    var targetDiscovered = parsed1.candidates.size
-                    var targetValid = saveCandidates("shopsy.in", parsed1.candidates, pincode, distinctPids)
-                    discovered += targetDiscovered
-                    valid += targetValid
-
-                    val pageCap = minOf(30, config.limits.maxPagesPerStore)
-                    if (pageCap > 1) {
-                        var consecutiveEmptyPages = 0
-                        for (page in 2..pageCap) {
-                            delay(config.delays.shopsyPageDelayMs)
-                            val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
-                            plpRequests++
-                            activityRepository?.log(
-                                RefreshLogSeverity.Info,
-                                "shopsy.in",
-                                "[Shopsy] Fetching ${target.name} (page $page of $pageCap)..."
-                            )
-                            val resp = CronetNetworkClient.executeCronetWithHeaders("${targetUrl}$pageParam", shopsyHeaders)
-                            if (resp.status in 200..299) {
-                                DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_$page", resp.body, "html")
-                                recordRawPayload(
-                                    id = UUID.randomUUID().toString(),
-                                    store = "shopsy_master_${target.name.replace(" ", "_")}_page_$page",
-                                    json = resp.body,
-                                )
-                                val p = FlipkartNativeParser.parse(resp.body, "shopsy.in", bullionRate24)
-                                if (p.candidates.isEmpty()) {
-                                    consecutiveEmptyPages++
-                                    if (consecutiveEmptyPages >= 3) break
-                                } else {
-                                    consecutiveEmptyPages = 0
-                                }
-                                val s = saveCandidates("shopsy.in", p.candidates, pincode, distinctPids)
-                                discovered += p.candidates.size
-                                valid += s
-                                targetDiscovered += p.candidates.size
-                                targetValid += s
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    val urlElapsed = System.currentTimeMillis() - urlStart
+            for (target in shopsyTargets) {
+                val urlStart = System.currentTimeMillis()
+                val targetUrl = target.url
+                try {
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "shopsy.in",
-                        "[Shopsy] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        "[Shopsy] Fetching ${target.name} (page 1)..."
                     )
-                } else {
-                    lastError = "HTTP ${resp1.status}"
+                    plpRequests++
+                    val resp1 = fetchStorePageWithRecovery("shopsy.in", targetUrl, shopsyHeaders)
+                    if (resp1.status in 200..299 && resp1.body.isNotBlank()) {
+                        DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_1", resp1.body, "html")
+                        recordRawPayload(
+                            id = UUID.randomUUID().toString(),
+                            store = "shopsy_master_${target.name.replace(" ", "_")}_page_1",
+                            json = resp1.body,
+                        )
+                        val parsed1 = FlipkartNativeParser.parse(resp1.body, "shopsy.in", bullionRate24)
+                        var targetDiscovered = parsed1.candidates.size
+                        var targetValid = saveCandidates("shopsy.in", parsed1.candidates, pincode, distinctPids)
+                        discovered += targetDiscovered
+                        valid += targetValid
+
+                        val pageCap = minOf(30, config.limits.maxPagesPerStore)
+                        if (pageCap > 1) {
+                            var consecutiveEmptyPages = 0
+                            for (page in 2..pageCap) {
+                                delay(config.delays.shopsyPageDelayMs)
+                                val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
+                                plpRequests++
+                                activityRepository?.log(
+                                    RefreshLogSeverity.Info,
+                                    "shopsy.in",
+                                    "[Shopsy] Fetching ${target.name} (page $page of $pageCap)..."
+                                )
+                                val resp = fetchStorePageWithRecovery("shopsy.in", "${targetUrl}$pageParam", shopsyHeaders)
+                                if (resp.status in 200..299 && resp.body.isNotBlank()) {
+                                    DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_$page", resp.body, "html")
+                                    recordRawPayload(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "shopsy_master_${target.name.replace(" ", "_")}_page_$page",
+                                        json = resp.body,
+                                    )
+                                    val p = FlipkartNativeParser.parse(resp.body, "shopsy.in", bullionRate24)
+                                    if (p.candidates.isEmpty()) {
+                                        consecutiveEmptyPages++
+                                        if (consecutiveEmptyPages >= 3) break
+                                    } else {
+                                        consecutiveEmptyPages = 0
+                                    }
+                                    val s = saveCandidates("shopsy.in", p.candidates, pincode, distinctPids)
+                                    discovered += p.candidates.size
+                                    valid += s
+                                    targetDiscovered += p.candidates.size
+                                    targetValid += s
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        val urlElapsed = System.currentTimeMillis() - urlStart
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "shopsy.in",
+                            "[Shopsy] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        )
+                    } else {
+                        lastError = "HTTP ${resp1.status}"
+                        activityRepository?.log(
+                            RefreshLogSeverity.Warning,
+                            "shopsy.in",
+                            "[Shopsy] ${target.name} returned HTTP ${resp1.status}"
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastError = e.message
+                    Log.e(tag, "Shopsy refresh error for ${target.name}: ${e.message}", e)
                     activityRepository?.log(
-                        RefreshLogSeverity.Warning,
+                        RefreshLogSeverity.Error,
                         "shopsy.in",
-                        "[Shopsy] ${target.name} returned HTTP ${resp1.status}"
+                        "[Shopsy] ${target.name} failed: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                lastError = e.message
-                Log.e(tag, "Shopsy refresh error for ${target.name}: ${e.message}", e)
-                activityRepository?.log(
-                    RefreshLogSeverity.Error,
-                    "shopsy.in",
-                    "[Shopsy] ${target.name} failed: ${e.message}"
-                )
             }
-        }
 
-        // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
-        val pdpResult = refreshStorePdp("shopsy.in", start, pincode)
-        valid += pdpResult.successful
+            // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
+            val pdpResult = refreshStorePdp("shopsy.in", start, pincode)
+            valid += pdpResult.successful
 
-        val duration = System.currentTimeMillis() - start
-        val result = StoreRefreshProgress(
-            store = "shopsy.in",
-            itemsDiscovered = discovered,
-            itemsValid = valid,
-            durationMs = duration,
-            isComplete = true,
-            error = lastError,
-            plpRequests = plpRequests,
-            pdpRequests = pdpResult.requests,
-            pdpSuccessful = pdpResult.successful,
-            pdpFailed = pdpResult.failed,
-            pdpRequired = pdpResult.required,
-            plpProcessedFully = valid - pdpResult.successful,
-        )
-        onProgress(result)
-        internalDatabase?.dao()?.insertExecutionMetrics(
-            ScraperExecutionMetricsEntity(
-                timestamp = System.currentTimeMillis(),
+            val duration = System.currentTimeMillis() - start
+            val result = StoreRefreshProgress(
                 store = "shopsy.in",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = lastError,
                 plpRequests = plpRequests,
-                plpProductsDiscovered = discovered,
                 pdpRequests = pdpResult.requests,
                 pdpSuccessful = pdpResult.successful,
                 pdpFailed = pdpResult.failed,
                 pdpRequired = pdpResult.required,
                 plpProcessedFully = valid - pdpResult.successful,
-                is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+            )
+            onProgress(result)
+            runCatching {
+                internalDatabase?.dao()?.insertExecutionMetrics(
+                    ScraperExecutionMetricsEntity(
+                        timestamp = System.currentTimeMillis(),
+                        store = "shopsy.in",
+                        plpRequests = plpRequests,
+                        plpProductsDiscovered = discovered,
+                        pdpRequests = pdpResult.requests,
+                        pdpSuccessful = pdpResult.successful,
+                        pdpFailed = pdpResult.failed,
+                        pdpRequired = pdpResult.required,
+                        plpProcessedFully = valid - pdpResult.successful,
+                        is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+                        durationMs = duration,
+                    )
+                )
+            }
+            if (valid > 0 || discovered > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "shopsy.in",
+                    "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
+                )
+            } else {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "shopsy.in",
+                    "Existing prices preserved: catalogue scan complete (${duration}ms)",
+                )
+            }
+            context?.let { ctx ->
+                DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+            }
+            result
+        } catch (e: Throwable) {
+            val duration = System.currentTimeMillis() - start
+            val errStr = e.message ?: "Shopsy error"
+            Log.e(tag, "Shopsy engine error: $errStr", e)
+            activityRepository?.log(RefreshLogSeverity.Error, "shopsy.in", "[Shopsy] Engine error: $errStr")
+            val progress = StoreRefreshProgress(
+                store = "shopsy.in",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
                 durationMs = duration,
+                isComplete = true,
+                error = errStr,
             )
-        )
-        if (valid > 0 || discovered > 0) {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "shopsy.in",
-                "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
-            )
-        } else {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "shopsy.in",
-                "Existing prices preserved: catalogue scan complete (${duration}ms)",
-            )
+            onProgress(progress)
+            progress
         }
-        context?.let { ctx ->
-            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
-        }
-        return result
     }
 
     // =========================================================================
@@ -712,160 +803,179 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
-        runCatching { database.dao().markAllStoreProductsStale("amazon.in") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
-        val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val config = ScraperConfigProvider.get()
-        val amazonTargets = config.amazonTargets
-        val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
-        val amazonHeaders = (config.stores["amazon"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
+        return try {
+            runCatching { database.dao().markAllStoreProductsStale("amazon.in") }
+            val distinctPids = mutableSetOf<String>()
+            val config = ScraperConfigProvider.get()
+            val amazonTargets = config.amazonTargets
+            val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
+            val amazonHeaders = (config.stores["amazon"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
 
-        for (target in amazonTargets) {
-            val urlStart = System.currentTimeMillis()
-            try {
-                activityRepository?.log(
-                    RefreshLogSeverity.Info,
-                    "amazon.in",
-                    "[Amazon] Fetching ${target.name} (page 1)..."
-                )
-                val page1Url = if (target.url.contains("ref=")) target.url else "${target.url}&ref=sr_pg_1"
-                plpRequests++
-                val resp1 = CronetNetworkClient.executeCronetWithHeaders(page1Url, amazonHeaders)
-                if (resp1.status in 200..299) {
-                    DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_1", resp1.body, "html")
-                    recordRawPayload(
-                        id = UUID.randomUUID().toString(),
-                        store = "amazon_master_${target.name.replace(" ", "_")}_page_1",
-                        json = resp1.body,
-                    )
-                    val parsed1 = AmazonNativeParser.parse(resp1.body, bullionRate24)
-                    val newCandidates1 = parsed1.candidates.filter { it.retailerId !in distinctPids }
-                    var targetDiscovered = newCandidates1.size
-                    var targetValid = saveCandidates("amazon.in", newCandidates1, null, distinctPids)
-                    discovered += targetDiscovered
-                    valid += targetValid
-
-                    val totalAvailable = parsed1.totalResults
-                    val pageCap = if (totalAvailable > 0) minOf(20, (totalAvailable + 15) / 16) else minOf(20, config.limits.maxPagesPerStore)
-                    if (pageCap > 1) {
-                        var consecutiveEmptyPages = 0
-                        for (page in 2..pageCap) {
-                            delay(config.delays.amazonPageDelayMs) // Gentle pacing avoids Amazon bot detection
-                            plpRequests++
-                            activityRepository?.log(
-                                RefreshLogSeverity.Info,
-                                "amazon.in",
-                                "[Amazon] Fetching ${target.name} (page $page of $pageCap)..."
-                            )
-                            val cleanBaseUrl = target.url.replace(Regex("&ref=[^&]*"), "")
-                            val pageUrl = if (cleanBaseUrl.contains("?")) "$cleanBaseUrl&page=$page" else "$cleanBaseUrl?page=$page"
-                            val resp = CronetNetworkClient.executeCronetWithHeaders(pageUrl, amazonHeaders)
-                            if (resp.status in 200..299) {
-                                DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_$page", resp.body, "html")
-                                recordRawPayload(
-                                    id = UUID.randomUUID().toString(),
-                                    store = "amazon_master_${target.name.replace(" ", "_")}_page_$page",
-                                    json = resp.body,
-                                )
-                                val p = AmazonNativeParser.parse(resp.body, bullionRate24)
-                                if (p.candidates.isEmpty()) {
-                                    consecutiveEmptyPages++
-                                    if (consecutiveEmptyPages >= 3) break
-                                } else {
-                                    consecutiveEmptyPages = 0
-                                }
-                                val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
-                                val s = saveCandidates("amazon.in", newCandidates, null, distinctPids)
-                                discovered += newCandidates.size
-                                valid += s
-                                targetDiscovered += newCandidates.size
-                                targetValid += s
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    val urlElapsed = System.currentTimeMillis() - urlStart
+            for (target in amazonTargets) {
+                val urlStart = System.currentTimeMillis()
+                try {
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "amazon.in",
-                        "[Amazon] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        "[Amazon] Fetching ${target.name} (page 1)..."
                     )
-                } else {
-                    lastError = "HTTP ${resp1.status}"
+                    val page1Url = if (target.url.contains("ref=")) target.url else "${target.url}&ref=sr_pg_1"
+                    plpRequests++
+                    val resp1 = fetchStorePageWithRecovery("amazon.in", page1Url, amazonHeaders)
+                    if (resp1.status in 200..299 && resp1.body.isNotBlank()) {
+                        DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_1", resp1.body, "html")
+                        recordRawPayload(
+                            id = UUID.randomUUID().toString(),
+                            store = "amazon_master_${target.name.replace(" ", "_")}_page_1",
+                            json = resp1.body,
+                        )
+                        val parsed1 = AmazonNativeParser.parse(resp1.body, bullionRate24)
+                        val newCandidates1 = parsed1.candidates.filter { it.retailerId !in distinctPids }
+                        var targetDiscovered = newCandidates1.size
+                        var targetValid = saveCandidates("amazon.in", newCandidates1, null, distinctPids)
+                        discovered += targetDiscovered
+                        valid += targetValid
+
+                        val totalAvailable = parsed1.totalResults
+                        val pageCap = if (totalAvailable > 0) minOf(20, (totalAvailable + 15) / 16) else minOf(20, config.limits.maxPagesPerStore)
+                        if (pageCap > 1) {
+                            var consecutiveEmptyPages = 0
+                            for (page in 2..pageCap) {
+                                delay(config.delays.amazonPageDelayMs) // Gentle pacing avoids Amazon bot detection
+                                plpRequests++
+                                activityRepository?.log(
+                                    RefreshLogSeverity.Info,
+                                    "amazon.in",
+                                    "[Amazon] Fetching ${target.name} (page $page of $pageCap)..."
+                                )
+                                val cleanBaseUrl = target.url.replace(Regex("&ref=[^&]*"), "")
+                                val pageUrl = if (cleanBaseUrl.contains("?")) "$cleanBaseUrl&page=$page" else "$cleanBaseUrl?page=$page"
+                                val resp = fetchStorePageWithRecovery("amazon.in", pageUrl, amazonHeaders)
+                                if (resp.status in 200..299 && resp.body.isNotBlank()) {
+                                    DatabaseBackupManager.saveRawPage("amazon.in", "${target.name}_page_$page", resp.body, "html")
+                                    recordRawPayload(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "amazon_master_${target.name.replace(" ", "_")}_page_$page",
+                                        json = resp.body,
+                                    )
+                                    val p = AmazonNativeParser.parse(resp.body, bullionRate24)
+                                    if (p.candidates.isEmpty()) {
+                                        consecutiveEmptyPages++
+                                        if (consecutiveEmptyPages >= 3) break
+                                    } else {
+                                        consecutiveEmptyPages = 0
+                                    }
+                                    val newCandidates = p.candidates.filter { it.retailerId !in distinctPids }
+                                    val s = saveCandidates("amazon.in", newCandidates, null, distinctPids)
+                                    discovered += newCandidates.size
+                                    valid += s
+                                    targetDiscovered += newCandidates.size
+                                    targetValid += s
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        val urlElapsed = System.currentTimeMillis() - urlStart
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "amazon.in",
+                            "[Amazon] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        )
+                    } else {
+                        lastError = "HTTP ${resp1.status}"
+                        activityRepository?.log(
+                            RefreshLogSeverity.Warning,
+                            "amazon.in",
+                            "[Amazon] ${target.name} returned HTTP ${resp1.status}"
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastError = e.message
+                    Log.e(tag, "Amazon refresh error for ${target.name}: ${e.message}", e)
                     activityRepository?.log(
-                        RefreshLogSeverity.Warning,
+                        RefreshLogSeverity.Error,
                         "amazon.in",
-                        "[Amazon] ${target.name} returned HTTP ${resp1.status}"
+                        "[Amazon] ${target.name} failed: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                lastError = e.message
-                Log.e(tag, "Amazon refresh error for ${target.name}: ${e.message}", e)
-                activityRepository?.log(
-                    RefreshLogSeverity.Error,
-                    "amazon.in",
-                    "[Amazon] ${target.name} failed: ${e.message}"
-                )
             }
-        }
 
-        // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
-        val pdpResult = refreshStorePdp("amazon.in", start, null)
-        valid += pdpResult.successful
+            // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
+            val pdpResult = refreshStorePdp("amazon.in", start, null)
+            valid += pdpResult.successful
 
-        val duration = System.currentTimeMillis() - start
-        val result = StoreRefreshProgress(
-            store = "amazon.in",
-            itemsDiscovered = discovered,
-            itemsValid = valid,
-            durationMs = duration,
-            isComplete = true,
-            error = lastError,
-            plpRequests = plpRequests,
-            pdpRequests = pdpResult.requests,
-            pdpSuccessful = pdpResult.successful,
-            pdpFailed = pdpResult.failed,
-            pdpRequired = pdpResult.required,
-            plpProcessedFully = valid - pdpResult.successful,
-        )
-        onProgress(result)
-        internalDatabase?.dao()?.insertExecutionMetrics(
-            ScraperExecutionMetricsEntity(
-                timestamp = System.currentTimeMillis(),
+            val duration = System.currentTimeMillis() - start
+            val result = StoreRefreshProgress(
                 store = "amazon.in",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = lastError,
                 plpRequests = plpRequests,
-                plpProductsDiscovered = discovered,
                 pdpRequests = pdpResult.requests,
                 pdpSuccessful = pdpResult.successful,
                 pdpFailed = pdpResult.failed,
                 pdpRequired = pdpResult.required,
                 plpProcessedFully = valid - pdpResult.successful,
-                is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+            )
+            onProgress(result)
+            runCatching {
+                internalDatabase?.dao()?.insertExecutionMetrics(
+                    ScraperExecutionMetricsEntity(
+                        timestamp = System.currentTimeMillis(),
+                        store = "amazon.in",
+                        plpRequests = plpRequests,
+                        plpProductsDiscovered = discovered,
+                        pdpRequests = pdpResult.requests,
+                        pdpSuccessful = pdpResult.successful,
+                        pdpFailed = pdpResult.failed,
+                        pdpRequired = pdpResult.required,
+                        plpProcessedFully = valid - pdpResult.successful,
+                        is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+                        durationMs = duration,
+                    )
+                )
+            }
+            if (valid > 0 || discovered > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "amazon.in",
+                    "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
+                )
+            } else {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "amazon.in",
+                    "Existing prices preserved: catalogue scan complete (${duration}ms)",
+                )
+            }
+            context?.let { ctx ->
+                DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+            }
+            result
+        } catch (e: Throwable) {
+            val duration = System.currentTimeMillis() - start
+            val errStr = e.message ?: "Amazon error"
+            Log.e(tag, "Amazon engine error: $errStr", e)
+            activityRepository?.log(RefreshLogSeverity.Error, "amazon.in", "[Amazon] Engine error: $errStr")
+            val progress = StoreRefreshProgress(
+                store = "amazon.in",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
                 durationMs = duration,
+                isComplete = true,
+                error = errStr,
             )
-        )
-        if (valid > 0 || discovered > 0) {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "amazon.in",
-                "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
-            )
-        } else {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "amazon.in",
-                "Existing prices preserved: catalogue scan complete (${duration}ms)",
-            )
+            onProgress(progress)
+            progress
         }
-        context?.let { ctx ->
-            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
-        }
-        return result
     }
 
     // =========================================================================
@@ -878,198 +988,217 @@ class NativeParallelRefreshEngine(
         onProgress: (StoreRefreshProgress) -> Unit,
     ): StoreRefreshProgress {
         val start = System.currentTimeMillis()
-        runCatching { database.dao().markAllStoreProductsStale("myntra.com") }
         var discovered = 0
         var valid = 0
         var lastError: String? = null
-        val distinctPids = mutableSetOf<String>()
         var plpRequests = 0
 
-        val config = ScraperConfigProvider.get()
-        val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
-        val webHeaders = config.stores["myntra"]?.webHeaders ?: config.network.desktopHeaders
-        val myntraTargets = config.myntraTargets
+        return try {
+            runCatching { database.dao().markAllStoreProductsStale("myntra.com") }
+            val distinctPids = mutableSetOf<String>()
+            val config = ScraperConfigProvider.get()
+            val gatewayHeaders = config.stores["myntra"]?.gatewayHeaders ?: emptyMap()
+            val webHeaders = config.stores["myntra"]?.webHeaders ?: config.network.desktopHeaders
+            val myntraTargets = config.myntraTargets
 
-        for (target in myntraTargets) {
-            val urlStart = System.currentTimeMillis()
-            try {
-                activityRepository?.log(
-                    RefreshLogSeverity.Info,
-                    "myntra.com",
-                    "[Myntra] Establishing session for ${target.name}..."
-                )
-                // 1. Visit web URL first to populate Akamai / Myntra session cookies in Cronet
-                plpRequests++
-                val initResp = CronetNetworkClient.executeCronetWithHeaders(target.url, webHeaders)
-
-                val rawCookies = (initResp.headers["set-cookie"] ?: initResp.headers["Set-Cookie"] ?: emptyList())
-                    .map { it.substringBefore(';') }
-                    .filter { it.isNotBlank() }
-                    .joinToString("; ")
-
-                val sessionGatewayHeaders = if (rawCookies.isNotBlank()) {
-                    gatewayHeaders + ("Cookie" to rawCookies)
-                } else gatewayHeaders
-
-                var targetDiscovered = 0
-                var targetValid = 0
-
-                val categorySlug = if (target.slug.isNotBlank()) target.slug else "gold-coin"
-                val gatewayBase = config.stores["myntra"]?.gatewayBaseUrl?.takeIf { it.isNotBlank() } ?: "https://www.myntra.com/gateway/v4/search/"
-                val page1ApiUrl = "${gatewayBase}$categorySlug?rows=100&o=0&plaEnabled=true&xdEnabled=false&isFacet=true&p=1&pincode=$pincode"
-                plpRequests++
-                var pageResp = CronetNetworkClient.executeCronetWithHeaders(page1ApiUrl, sessionGatewayHeaders)
-                if (pageResp.status != 200) {
-                    pageResp = initResp
-                }
-
-                if (pageResp.status in 200..299) {
-                    DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_1", pageResp.body, if (pageResp.body.trimStart().startsWith("<")) "html" else "json")
-                    recordRawPayload(
-                        id = UUID.randomUUID().toString(),
-                        store = "myntra_master_${target.name.replace(" ", "_")}_page_1",
-                        json = pageResp.body,
-                    )
-                    var currentPaginationCtx = pageResp.headers["pagination-context"]?.firstOrNull()
-                        ?: pageResp.headers["Pagination-Context"]?.firstOrNull()
-
-                    val parsed = MyntraNativeParser.parse(pageResp.body, bullionRate24)
-                    val s0 = saveCandidates("myntra.com", parsed.candidates, pincode, distinctPids)
-                    targetDiscovered += parsed.candidates.size
-                    targetValid += s0
-                    discovered += parsed.candidates.size
-                    valid += s0
-
-                    val seenIds = parsed.candidates.map { it.retailerId }.toMutableSet()
-                    val totalAvailable = parsed.totalCount
-                    val totalPagesAvailable = if (totalAvailable > 0) (totalAvailable + 99) / 100 else config.limits.maxPagesPerStore
-                    val pageLimit = totalPagesAvailable
-
-                    if (pageLimit > 1) {
-                        for (page in 2..pageLimit) {
-                            delay(config.delays.myntraApiPageDelayMs)
-                            val offset = (page - 1) * 100
-                            val nextApiUrl = "${gatewayBase}$categorySlug?rows=100&o=$offset&plaEnabled=true&xdEnabled=false&isFacet=true&p=$page&pincode=$pincode"
-                            val nextHeaders = if (!currentPaginationCtx.isNullOrBlank()) {
-                                sessionGatewayHeaders + ("pagination-context" to currentPaginationCtx)
-                            } else sessionGatewayHeaders
-
-                            plpRequests++
-                            activityRepository?.log(
-                                RefreshLogSeverity.Info,
-                                "myntra.com",
-                                "[Myntra] Fetching ${target.name} (page $page of $pageLimit)..."
-                            )
-                            var r = CronetNetworkClient.executeCronetWithHeaders(nextApiUrl, nextHeaders)
-                            if (r.status != 200) {
-                                val pageSep = if (target.url.contains("?")) "&" else "?"
-                                val nextWebUrl = "${target.url}${pageSep}p=$page"
-                                r = CronetNetworkClient.executeCronetWithHeaders(nextWebUrl, webHeaders)
-                            }
-
-                            val newCtx = r.headers["pagination-context"]?.firstOrNull()
-                                ?: r.headers["Pagination-Context"]?.firstOrNull()
-                            if (!newCtx.isNullOrBlank()) currentPaginationCtx = newCtx
-
-                            if (r.status in 200..299) {
-                                DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_$page", r.body, if (r.body.trimStart().startsWith("<")) "html" else "json")
-                                recordRawPayload(
-                                    id = UUID.randomUUID().toString(),
-                                    store = "myntra_master_${target.name.replace(" ", "_")}_page_$page",
-                                    json = r.body,
-                                )
-                                val p = MyntraNativeParser.parse(r.body, bullionRate24)
-                                val newCandidates = p.candidates.filter { it.retailerId !in seenIds }
-                                if (newCandidates.isEmpty()) {
-                                    break
-                                }
-                                newCandidates.forEach { seenIds.add(it.retailerId) }
-                                val s = saveCandidates("myntra.com", newCandidates, pincode, distinctPids)
-                                discovered += newCandidates.size
-                                valid += s
-                                targetDiscovered += newCandidates.size
-                                targetValid += s
-                            } else {
-                                break
-                            }
-                        }
-                    }
-                    val urlElapsed = System.currentTimeMillis() - urlStart
+            for (target in myntraTargets) {
+                val urlStart = System.currentTimeMillis()
+                try {
                     activityRepository?.log(
                         RefreshLogSeverity.Info,
                         "myntra.com",
-                        "[Myntra] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        "[Myntra] Establishing session for ${target.name}..."
                     )
-                } else {
+                    // 1. Visit web URL first to populate Akamai / Myntra session cookies in Cronet
+                    plpRequests++
+                    val initResp = fetchStorePageWithRecovery("myntra.com", target.url, webHeaders)
+
+                    val rawCookies = (initResp.headers["set-cookie"] ?: initResp.headers["Set-Cookie"] ?: emptyList())
+                        .map { it.substringBefore(';') }
+                        .filter { it.isNotBlank() }
+                        .joinToString("; ")
+
+                    val sessionGatewayHeaders = if (rawCookies.isNotBlank()) {
+                        gatewayHeaders + ("Cookie" to rawCookies)
+                    } else gatewayHeaders
+
+                    var targetDiscovered = 0
+                    var targetValid = 0
+
+                    val categorySlug = if (target.slug.isNotBlank()) target.slug else "gold-coin"
+                    val gatewayBase = config.stores["myntra"]?.gatewayBaseUrl?.takeIf { it.isNotBlank() } ?: "https://www.myntra.com/gateway/v4/search/"
+                    val page1ApiUrl = "${gatewayBase}$categorySlug?rows=100&o=0&plaEnabled=true&xdEnabled=false&isFacet=true&p=1&pincode=$pincode"
+                    plpRequests++
+                    var pageResp = fetchStorePageWithRecovery("myntra.com", page1ApiUrl, sessionGatewayHeaders)
+                    if (pageResp.status != 200) {
+                        pageResp = initResp
+                    }
+
+                    if (pageResp.status in 200..299 && pageResp.body.isNotBlank()) {
+                        DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_1", pageResp.body, if (pageResp.body.trimStart().startsWith("<")) "html" else "json")
+                        recordRawPayload(
+                            id = UUID.randomUUID().toString(),
+                            store = "myntra_master_${target.name.replace(" ", "_")}_page_1",
+                            json = pageResp.body,
+                        )
+                        var currentPaginationCtx = pageResp.headers["pagination-context"]?.firstOrNull()
+                            ?: pageResp.headers["Pagination-Context"]?.firstOrNull()
+
+                        val parsed = MyntraNativeParser.parse(pageResp.body, bullionRate24)
+                        val s0 = saveCandidates("myntra.com", parsed.candidates, pincode, distinctPids)
+                        targetDiscovered += parsed.candidates.size
+                        targetValid += s0
+                        discovered += parsed.candidates.size
+                        valid += s0
+
+                        val seenIds = parsed.candidates.map { it.retailerId }.toMutableSet()
+                        val totalAvailable = parsed.totalCount
+                        val totalPagesAvailable = if (totalAvailable > 0) (totalAvailable + 99) / 100 else config.limits.maxPagesPerStore
+                        val pageLimit = totalPagesAvailable
+
+                        if (pageLimit > 1) {
+                            for (page in 2..pageLimit) {
+                                delay(config.delays.myntraApiPageDelayMs)
+                                val offset = (page - 1) * 100
+                                val nextApiUrl = "${gatewayBase}$categorySlug?rows=100&o=$offset&plaEnabled=true&xdEnabled=false&isFacet=true&p=$page&pincode=$pincode"
+                                val nextHeaders = if (!currentPaginationCtx.isNullOrBlank()) {
+                                    sessionGatewayHeaders + ("pagination-context" to currentPaginationCtx)
+                                } else sessionGatewayHeaders
+
+                                plpRequests++
+                                activityRepository?.log(
+                                    RefreshLogSeverity.Info,
+                                    "myntra.com",
+                                    "[Myntra] Fetching ${target.name} (page $page of $pageLimit)..."
+                                )
+                                var r = fetchStorePageWithRecovery("myntra.com", nextApiUrl, nextHeaders)
+                                if (r.status != 200) {
+                                    val pageSep = if (target.url.contains("?")) "&" else "?"
+                                    val nextWebUrl = "${target.url}${pageSep}p=$page"
+                                    r = fetchStorePageWithRecovery("myntra.com", nextWebUrl, webHeaders)
+                                }
+
+                                val newCtx = r.headers["pagination-context"]?.firstOrNull()
+                                    ?: r.headers["Pagination-Context"]?.firstOrNull()
+                                if (!newCtx.isNullOrBlank()) currentPaginationCtx = newCtx
+
+                                if (r.status in 200..299) {
+                                    DatabaseBackupManager.saveRawPage("myntra.com", "${target.name}_page_$page", r.body, if (r.body.trimStart().startsWith("<")) "html" else "json")
+                                    recordRawPayload(
+                                        id = UUID.randomUUID().toString(),
+                                        store = "myntra_master_${target.name.replace(" ", "_")}_page_$page",
+                                        json = r.body,
+                                    )
+                                    val p = MyntraNativeParser.parse(r.body, bullionRate24)
+                                    val newCandidates = p.candidates.filter { it.retailerId !in seenIds }
+                                    if (newCandidates.isEmpty()) {
+                                        break
+                                    }
+                                    newCandidates.forEach { seenIds.add(it.retailerId) }
+                                    val s = saveCandidates("myntra.com", newCandidates, pincode, distinctPids)
+                                    discovered += newCandidates.size
+                                    valid += s
+                                    targetDiscovered += newCandidates.size
+                                    targetValid += s
+                                } else {
+                                    break
+                                }
+                            }
+                        }
+                        val urlElapsed = System.currentTimeMillis() - urlStart
+                        activityRepository?.log(
+                            RefreshLogSeverity.Info,
+                            "myntra.com",
+                            "[Myntra] ${target.name}: $targetDiscovered discovered, $targetValid valid saved (${urlElapsed}ms)"
+                        )
+                    } else {
+                        activityRepository?.log(
+                            RefreshLogSeverity.Warning,
+                            "myntra.com",
+                            "[Myntra] ${target.name} page 1 returned HTTP ${pageResp.status}"
+                        )
+                    }
+                } catch (e: Exception) {
+                    lastError = e.message
+                    Log.e(tag, "Myntra refresh error for ${target.name}: ${e.message}", e)
                     activityRepository?.log(
-                        RefreshLogSeverity.Warning,
+                        RefreshLogSeverity.Error,
                         "myntra.com",
-                        "[Myntra] ${target.name} page 1 returned HTTP ${pageResp.status}"
+                        "[Myntra] ${target.name} failed: ${e.message}"
                     )
                 }
-            } catch (e: Exception) {
-                lastError = e.message
-                Log.e(tag, "Myntra refresh error for ${target.name}: ${e.message}", e)
-                activityRepository?.log(
-                    RefreshLogSeverity.Error,
-                    "myntra.com",
-                    "[Myntra] ${target.name} failed: ${e.message}"
-                )
             }
-        }
 
-        // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
-        val pdpResult = refreshStorePdp("myntra.com", start, pincode)
-        valid += pdpResult.successful
+            // Sequential PDP verification & enrichment for remaining unrefreshed/stale items
+            val pdpResult = refreshStorePdp("myntra.com", start, pincode)
+            valid += pdpResult.successful
 
-        val duration = System.currentTimeMillis() - start
-        val result = StoreRefreshProgress(
-            store = "myntra.com",
-            itemsDiscovered = discovered,
-            itemsValid = valid,
-            durationMs = duration,
-            isComplete = true,
-            error = lastError,
-            plpRequests = plpRequests,
-            pdpRequests = pdpResult.requests,
-            pdpSuccessful = pdpResult.successful,
-            pdpFailed = pdpResult.failed,
-            pdpRequired = pdpResult.required,
-            plpProcessedFully = valid - pdpResult.successful,
-        )
-        onProgress(result)
-        internalDatabase?.dao()?.insertExecutionMetrics(
-            ScraperExecutionMetricsEntity(
-                timestamp = System.currentTimeMillis(),
+            val duration = System.currentTimeMillis() - start
+            val result = StoreRefreshProgress(
                 store = "myntra.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
+                durationMs = duration,
+                isComplete = true,
+                error = lastError,
                 plpRequests = plpRequests,
-                plpProductsDiscovered = discovered,
                 pdpRequests = pdpResult.requests,
                 pdpSuccessful = pdpResult.successful,
                 pdpFailed = pdpResult.failed,
                 pdpRequired = pdpResult.required,
                 plpProcessedFully = valid - pdpResult.successful,
-                is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+            )
+            onProgress(result)
+            runCatching {
+                internalDatabase?.dao()?.insertExecutionMetrics(
+                    ScraperExecutionMetricsEntity(
+                        timestamp = System.currentTimeMillis(),
+                        store = "myntra.com",
+                        plpRequests = plpRequests,
+                        plpProductsDiscovered = discovered,
+                        pdpRequests = pdpResult.requests,
+                        pdpSuccessful = pdpResult.successful,
+                        pdpFailed = pdpResult.failed,
+                        pdpRequired = pdpResult.required,
+                        plpProcessedFully = valid - pdpResult.successful,
+                        is403Encountered = pdpResult.failed > 0 && lastError?.contains("403") == true,
+                        durationMs = duration,
+                    )
+                )
+            }
+            if (valid > 0 || discovered > 0) {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "myntra.com",
+                    "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
+                )
+            } else {
+                activityRepository?.log(
+                    RefreshLogSeverity.Info,
+                    "myntra.com",
+                    "Existing prices preserved: catalogue scan complete (${duration}ms)",
+                )
+            }
+            context?.let { ctx ->
+                DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
+            }
+            result
+        } catch (e: Throwable) {
+            val duration = System.currentTimeMillis() - start
+            val errStr = e.message ?: "Myntra error"
+            Log.e(tag, "Myntra engine error: $errStr", e)
+            activityRepository?.log(RefreshLogSeverity.Error, "myntra.com", "[Myntra] Engine error: $errStr")
+            val progress = StoreRefreshProgress(
+                store = "myntra.com",
+                itemsDiscovered = discovered,
+                itemsValid = valid,
                 durationMs = duration,
+                isComplete = true,
+                error = errStr,
             )
-        )
-        if (valid > 0 || discovered > 0) {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "myntra.com",
-                "Coverage: $discovered discovered, $valid valid gold items ingested (${duration}ms)",
-            )
-        } else {
-            activityRepository?.log(
-                RefreshLogSeverity.Info,
-                "myntra.com",
-                "Existing prices preserved: catalogue scan complete (${duration}ms)",
-            )
+            onProgress(progress)
+            progress
         }
-        context?.let { ctx ->
-            DatabaseBackupManager.syncDatabasesToExternal(ctx, database, internalDatabase)
-        }
-        return result
     }
 
     // =========================================================================
@@ -1356,8 +1485,8 @@ class NativeParallelRefreshEngine(
                             pdpRequests++
                             try {
                                 val response = when (store) {
-                                    "ajio.com" -> CronetNetworkClient.executeCronetWithHeaders(endpoint, ajioPdpHeaders)
-                                    else -> CronetNetworkClient.executeCronetWithHeaders(endpoint, desktopHeaders)
+                                    "ajio.com" -> fetchStorePageWithRecovery("ajio.com", endpoint, ajioPdpHeaders)
+                                    else -> fetchStorePageWithRecovery(store, endpoint, desktopHeaders)
                                 }
 
                                 val ext = if (response.body.trimStart().startsWith("<") || response.body.trimStart().startsWith("<!")) "html" else "json"
@@ -1504,8 +1633,10 @@ class NativeParallelRefreshEngine(
         )
         if (internalDatabase != null) {
             internalDatabase.dao().insertRawPayload(payload)
+            internalDatabase.dao().trimRawPayloads(5)
         } else {
             database.dao().insertRawPayload(payload)
+            database.dao().trimRawPayloads(5)
         }
     }
 }

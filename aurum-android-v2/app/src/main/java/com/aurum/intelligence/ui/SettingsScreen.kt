@@ -214,9 +214,13 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Remind me to refresh", modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f)) {
+                            Text("Automatic background refresh", fontWeight = FontWeight.SemiBold)
+                            Text("Automatically refreshes store prices and bullion in the background even if Aurum is closed. Sends notifications when deals drop below bullion or match your threshold.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Spacer(Modifier.height(8.dp))
                         Switch(
-                            modifier = Modifier.semantics { contentDescription = "Remind me to refresh" },
+                            modifier = Modifier.semantics { contentDescription = "Automatic background refresh" },
                             checked = settings.backgroundRefreshEnabled,
                             onCheckedChange = { enabled ->
                                 if (!enabled || Build.VERSION.SDK_INT < 33 ||
@@ -235,7 +239,7 @@ fun SettingsScreen(
                         PackageManager.PERMISSION_GRANTED
                     ) {
                         Text(
-                            "Notifications are disabled, so Aurum cannot alert you when a refresh reminder is due.",
+                            "Notifications are disabled, so Aurum cannot alert you when a deal alert is triggered.",
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -262,10 +266,15 @@ fun SettingsScreen(
                             ) { Icon(Icons.Outlined.Add, contentDescription = "Increase refresh interval") }
                         }
                     }
-                    Text(
-                        "Best effort: Aurum records the request and notifies you to open the in-app browser collection.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
+                }
+            }
+            item {
+                SettingsCard("DEBUG", "Debug mode & raw dumps") {
+                    BrowserSettingRow(
+                        title = "Save raw HTML/JSON pages",
+                        detail = "Dumps raw network responses and HTML/JSON pages to disk during refreshes for debugging.",
+                        checked = settings.debugModeEnabled,
+                        onCheckedChange = model::setDebugModeEnabled,
                     )
                 }
             }

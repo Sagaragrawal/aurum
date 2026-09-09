@@ -46,9 +46,14 @@ class RefreshActivityRepository(
         }
     }
 
-    suspend fun clear() = database.dao().clearRefreshActivity()
+    suspend fun clear() {
+        database.withTransaction {
+            database.dao().clearRefreshActivity()
+            database.dao().clearRawPayloads()
+        }
+    }
 
     private companion object {
-        const val MAX_LOGS = 2_000
+        const val MAX_LOGS = 100
     }
 }

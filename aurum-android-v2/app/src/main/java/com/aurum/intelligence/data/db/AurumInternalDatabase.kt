@@ -57,6 +57,12 @@ interface AurumInternalDao {
     @Query("SELECT * FROM raw_bridge_payloads ORDER BY receivedAt, id")
     suspend fun allRawPayloads(): List<RawBridgePayloadEntity>
 
+    @Query("DELETE FROM raw_bridge_payloads WHERE id NOT IN (SELECT id FROM raw_bridge_payloads ORDER BY receivedAt DESC, id DESC LIMIT :keepCount)")
+    suspend fun trimRawPayloads(keepCount: Int)
+
+    @Query("DELETE FROM raw_bridge_payloads")
+    suspend fun clearRawPayloads()
+
     @Query("DELETE FROM raw_bridge_payloads WHERE id = :id")
     suspend fun deleteRawPayload(id: String)
 

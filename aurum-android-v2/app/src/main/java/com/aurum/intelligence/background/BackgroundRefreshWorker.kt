@@ -22,6 +22,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.aurum.intelligence.AurumApplication
 import com.aurum.intelligence.MainActivity
+import com.aurum.intelligence.ui.DealMode
 import com.aurum.intelligence.ui.ProductCalculations
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -49,14 +50,17 @@ class BackgroundRefreshWorker(
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setOngoing(true)
             .build()
-        return ForegroundInfo(notificationId, notification)
+        return if (Build.VERSION.SDK_INT >= 29) {
+            ForegroundInfo(notificationId, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(notificationId, notification)
+        }
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val application = applicationContext as AurumApplication
         try {
-            setForeground(getForegroundInfo())
-            application.settingsRepository.markBackgroundRefreshRequested()
+            runCatching { setForeground(getForegroundInfo()) }
 
             val settings = application.settingsRepository.settings.first()
             val pincode = settings.pincode.takeIf { it.isNotBlank() } ?: ScraperConfigProvider.get().location.defaultPincode
@@ -69,21 +73,26 @@ class BackgroundRefreshWorker(
                 maxPagesPerStore = ScraperConfigProvider.get().limits.defaultPagesPerRefresh,
             )
 
-            // 3. Scan deals
+            // 3. Scan deals and notify for Blink Deals, below bullion, or matching threshold
             val products = application.database.dao().allProducts()
             val bullionSources = application.database.dao().allBullionSources()
-            val benchmark24 = bullionSources.mapNotNull { it.price24 }.average().takeIf { it > 0 }
-            val benchmark22 = bullionSources.mapNotNull { it.price22 }.average().takeIf { it > 0 }
+            val clean24 = BullionBenchmark.cleanRates(bullionSources.mapNotNull { it.price24 })
+            val clean22 = BullionBenchmark.cleanRates(bullionSources.mapNotNull { it.price22 })
+            val benchmark24 = BullionBenchmark.blend(clean24)
+            val benchmark22 = BullionBenchmark.blend(clean22)
+
+            val mode = runCatching { DealMode.valueOf(settings.dealMode) }.getOrDefault(DealMode.Percent)
+            val threshold = if (mode == DealMode.Percent) settings.dealPercentThreshold else settings.dealRupeesThreshold
 
             var blinkDealsFound = 0
-            var stealDealsFound = 0
+            var dealsFound = 0
 
             products.forEach { product ->
                 if (product.isBlinkDeal && product.blinkDealPrice != null) {
                     blinkDealsFound++
                     AurumNotificationManager.notifyBlinkDeal(
                         applicationContext,
-                        product.name,
+                        ProductCalculations.displayName(product),
                         "₹${product.blinkDealPrice.toInt()}",
                         product.store,
                     )
@@ -92,14 +101,21 @@ class BackgroundRefreshWorker(
                 val benchmark = ProductCalculations.benchmarkFor(product, benchmark24, benchmark22)
                 if (benchmark != null && ProductCalculations.isDealEligible(product, benchmark, System.currentTimeMillis())) {
                     val effectivePerGram = ProductCalculations.effectivePerGram(product)
-                    if (effectivePerGram != null && effectivePerGram < benchmark) {
-                        stealDealsFound++
-                        AurumNotificationManager.notifyBelowBullionDeal(
-                            applicationContext,
-                            product.name,
-                            "₹${effectivePerGram.toInt()}",
-                            "₹${benchmark.toInt()}",
-                        )
+                    if (effectivePerGram != null) {
+                        val rupeesDelta = effectivePerGram - benchmark
+                        val percentDelta = (rupeesDelta / benchmark) * 100
+                        val deltaVal = if (mode == DealMode.Percent) percentDelta else rupeesDelta
+
+                        if (rupeesDelta < 0 || kotlin.math.abs(deltaVal) <= threshold.coerceAtLeast(0.0)) {
+                            dealsFound++
+                            val title = if (rupeesDelta < 0) "🔥 Steal Deal: Below Bullion Rate!" else "🎯 Deal Alert: Matches Bullion Threshold"
+                            AurumNotificationManager.notifyDealAlert(
+                                context = applicationContext,
+                                title = title,
+                                message = "${ProductCalculations.displayName(product)} @ ₹${effectivePerGram.toInt()}/g (Bullion: ₹${benchmark.toInt()}/g)",
+                                dealKey = "deal_${product.id}_${effectivePerGram.toInt()}",
+                            )
+                        }
                     }
                 }
             }
@@ -107,9 +123,9 @@ class BackgroundRefreshWorker(
             application.refreshActivityRepository.log(
                 com.aurum.intelligence.data.repository.RefreshLogSeverity.Info,
                 null,
-                "Background scan complete: $blinkDealsFound Blink Deals, $stealDealsFound Steal Deals",
+                "Background scan complete: $blinkDealsFound Blink Deals, $dealsFound Deals found",
             )
-            
+
             com.aurum.intelligence.data.db.DatabaseBackupManager.createBackup(application.repository, applicationContext)
 
             Result.success()

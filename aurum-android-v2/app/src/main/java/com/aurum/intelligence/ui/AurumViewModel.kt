@@ -101,6 +101,10 @@ class AurumViewModel(
         settingsRepository.setRefreshIntervalMinutes(minutes)
     }
 
+    fun setDebugModeEnabled(enabled: Boolean) = viewModelScope.launch {
+        settingsRepository.setDebugModeEnabled(enabled)
+    }
+
     fun clearBackgroundRefreshRequest() = viewModelScope.launch {
         settingsRepository.clearBackgroundRefreshRequest()
     }

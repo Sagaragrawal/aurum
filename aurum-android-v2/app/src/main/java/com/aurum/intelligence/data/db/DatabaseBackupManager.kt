@@ -156,6 +156,24 @@ object DatabaseBackupManager {
         }
     }
 
+    fun vacuumAndShrinkDatabases(context: Context, database: AurumDatabase? = null, internalDatabase: AurumInternalDatabase? = null) {
+        runCatching {
+            internalDatabase?.runCatching {
+                openHelper.writableDatabase.execSQL("DELETE FROM raw_bridge_payloads;")
+                openHelper.writableDatabase.execSQL("DELETE FROM refresh_activity_logs WHERE id NOT IN (SELECT id FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT 50);")
+                openHelper.writableDatabase.execSQL("VACUUM;")
+                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").close()
+            }
+            database?.runCatching {
+                openHelper.writableDatabase.execSQL("VACUUM;")
+                openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").close()
+            }
+            android.util.Log.i("DatabaseBackupManager", "Vacuum and shrink completed successfully.")
+        }.onFailure { e ->
+            android.util.Log.w("DatabaseBackupManager", "Vacuum failed: ${e.message}")
+        }
+    }
+
     suspend fun checkAndRestoreIfNeeded(database: AurumDatabase, repository: BridgeRepository, context: Context): ArchiveImportResult? = withContext(Dispatchers.IO) {
         runCatching {
             val productCount = database.dao().productCount()

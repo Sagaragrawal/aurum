@@ -33,6 +33,7 @@ data class AppSettings(
     val backgroundRefreshEnabled: Boolean = ScraperConfigProvider.get().appSettingsDefaults.backgroundRefreshEnabled,
     val refreshIntervalMinutes: Int = ScraperConfigProvider.get().appSettingsDefaults.refreshIntervalMinutes,
     val backgroundRefreshRequestedAt: Long? = null,
+    val debugModeEnabled: Boolean = false,
 )
 
 private val Context.aurumSettingsDataStore by preferencesDataStore(name = "aurum_settings")
@@ -64,6 +65,7 @@ class AppSettingsRepository(private val context: Context) {
                 backgroundRefreshEnabled = preferences[backgroundRefreshKey] ?: defaults.backgroundRefreshEnabled,
                 refreshIntervalMinutes = (preferences[refreshIntervalKey] ?: defaults.refreshIntervalMinutes).coerceIn(minInterval, maxInterval),
                 backgroundRefreshRequestedAt = preferences[backgroundRefreshRequestedAtKey],
+                debugModeEnabled = preferences[debugModeKey] ?: false,
             )
         }
 
@@ -114,6 +116,10 @@ class AppSettingsRepository(private val context: Context) {
         context.aurumSettingsDataStore.edit { it[refreshIntervalKey] = minutes.coerceIn(15, 240) }
     }
 
+    suspend fun setDebugModeEnabled(enabled: Boolean) {
+        context.aurumSettingsDataStore.edit { it[debugModeKey] = enabled }
+    }
+
     suspend fun markBackgroundRefreshRequested(requestedAt: Long = System.currentTimeMillis()) {
         context.aurumSettingsDataStore.edit { it[backgroundRefreshRequestedAtKey] = requestedAt }
     }
@@ -136,5 +142,6 @@ class AppSettingsRepository(private val context: Context) {
         val backgroundRefreshKey = booleanPreferencesKey("background_refresh_enabled")
         val refreshIntervalKey = intPreferencesKey("refresh_interval_minutes")
         val backgroundRefreshRequestedAtKey = longPreferencesKey("background_refresh_requested_at")
+        val debugModeKey = booleanPreferencesKey("debug_mode_enabled")
     }
 }

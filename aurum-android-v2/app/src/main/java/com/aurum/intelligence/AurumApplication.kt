@@ -58,8 +58,20 @@ class AurumApplication : Application() {
         runCatching {
             com.aurum.intelligence.data.engine.ScraperConfigProvider.init(this)
             CronetNetworkClient.initialize(this)
-            internalDatabase = com.aurum.intelligence.data.db.AurumInternalDatabase.create(this)
-            database = AurumDatabase.create(this)
+            internalDatabase = runCatching {
+                com.aurum.intelligence.data.db.AurumInternalDatabase.create(this)
+            }.getOrElse { e ->
+                android.util.Log.w("AurumApp", "Internal database corrupted, re-creating: ${e.message}")
+                deleteDatabase("aurum_internal.db")
+                com.aurum.intelligence.data.db.AurumInternalDatabase.create(this)
+            }
+            database = runCatching {
+                AurumDatabase.create(this)
+            }.getOrElse { e ->
+                android.util.Log.w("AurumApp", "Main database corrupted, re-creating: ${e.message}")
+                deleteDatabase("aurum.db")
+                AurumDatabase.create(this)
+            }
             repository = BridgeRepository(database)
             watchlistRepository = database.createWatchlistRepository()
             bullionRepository = BullionRepository(database)
@@ -108,6 +120,7 @@ class AurumApplication : Application() {
 
                     // Reconcile stale unrefreshed products to unavailable so they don't pollute NotLive
                     database.openHelper.writableDatabase.execSQL("UPDATE products SET status = 'unavailable', deliverable = 0 WHERE status = 'stale'")
+                    DatabaseBackupManager.vacuumAndShrinkDatabases(this@AurumApplication, database, internalDatabase)
                     DatabaseBackupManager.syncDatabasesToExternal(this@AurumApplication, database, internalDatabase)
                 }.onFailure { failure ->
                     mutableStartupState.value = StartupState.Degraded(

@@ -318,6 +318,7 @@ abstract class AurumDatabase : RoomDatabase() {
             "aurum.db",
         ).createFromAsset("seed/aurum.db")
          .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+         .fallbackToDestructiveMigration()
          .build()
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
