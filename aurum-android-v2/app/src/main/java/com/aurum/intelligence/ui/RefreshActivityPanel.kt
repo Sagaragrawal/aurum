@@ -65,7 +65,7 @@ fun RefreshActivityPanel(
                 (storeFilter == null || log.store == storeFilter)
         }
     }
-    val displayedLogs = remember(visibleLogs) { visibleLogs.takeLast(100) }
+    val displayedLogs = visibleLogs
     val clipboardManager = LocalContext.current.getSystemService(ClipboardManager::class.java)
 
     androidx.compose.runtime.LaunchedEffect(copied) {

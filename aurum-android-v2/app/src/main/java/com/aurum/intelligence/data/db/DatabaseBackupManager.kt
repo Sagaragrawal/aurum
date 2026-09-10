@@ -160,7 +160,7 @@ object DatabaseBackupManager {
         runCatching {
             internalDatabase?.runCatching {
                 openHelper.writableDatabase.execSQL("DELETE FROM raw_bridge_payloads;")
-                openHelper.writableDatabase.execSQL("DELETE FROM refresh_activity_logs WHERE id NOT IN (SELECT id FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT 50);")
+                openHelper.writableDatabase.execSQL("DELETE FROM refresh_activity_logs WHERE runId NOT IN (SELECT DISTINCT runId FROM refresh_activity_logs ORDER BY runId DESC LIMIT 3);")
                 openHelper.writableDatabase.execSQL("VACUUM;")
                 openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").close()
             }

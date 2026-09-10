@@ -39,17 +39,32 @@ interface AurumInternalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRefreshActivity(log: RefreshActivityLogEntity): Long
 
+    @Query("SELECT * FROM refresh_activity_logs WHERE runId = :runId ORDER BY timestamp ASC, id ASC")
+    fun observeRunRefreshActivity(runId: Long): Flow<List<RefreshActivityLogEntity>>
+
+    @Query("SELECT * FROM refresh_activity_logs ORDER BY timestamp ASC, id ASC")
+    fun observeAllRefreshActivity(): Flow<List<RefreshActivityLogEntity>>
+
+    @Query("SELECT DISTINCT runId FROM refresh_activity_logs ORDER BY runId DESC LIMIT 1")
+    suspend fun getLatestRunId(): Long?
+
     @Query("SELECT * FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun observeRecentRefreshActivity(limit: Int): Flow<List<RefreshActivityLogEntity>>
 
     @Query("DELETE FROM refresh_activity_logs WHERE id NOT IN (SELECT id FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT :keepCount)")
     suspend fun trimRefreshActivity(keepCount: Int)
 
+    @Query("DELETE FROM refresh_activity_logs WHERE runId NOT IN (SELECT DISTINCT runId FROM refresh_activity_logs ORDER BY runId DESC LIMIT :maxRuns)")
+    suspend fun trimRefreshActivityToMaxRuns(maxRuns: Int)
+
     @Query("DELETE FROM refresh_activity_logs")
     suspend fun clearRefreshActivity()
 
     @Query("DELETE FROM refresh_activity_logs WHERE store = :store")
     suspend fun clearStoreRefreshActivity(store: String)
+
+    @Query("DELETE FROM refresh_activity_logs WHERE store = :store AND runId = :runId")
+    suspend fun clearStoreRefreshActivityForRun(store: String, runId: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRawPayload(payload: RawBridgePayloadEntity)
@@ -79,7 +94,7 @@ interface AurumInternalDao {
         RawBridgePayloadEntity::class,
         ScraperExecutionMetricsEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AurumInternalDatabase : RoomDatabase() {

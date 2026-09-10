@@ -127,13 +127,14 @@ data class BullionHistoryEntity(
 )
 
 @Immutable
-@Entity(tableName = "refresh_activity_logs", indices = [Index(value = ["timestamp"])])
+@Entity(tableName = "refresh_activity_logs", indices = [Index(value = ["timestamp"]), Index(value = ["runId"])])
 data class RefreshActivityLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val timestamp: Long,
     val severity: String,
     val store: String?,
     val message: String,
+    val runId: Long = 0,
 )
 
 @Dao
@@ -164,6 +165,15 @@ interface AurumDao {
 
     @Query("SELECT * FROM bullion_history ORDER BY fetchedAt DESC, id DESC LIMIT :limit")
     fun observeRecentBullionHistory(limit: Int): Flow<List<BullionHistoryEntity>>
+
+    @Query("SELECT * FROM refresh_activity_logs WHERE runId = :runId ORDER BY timestamp ASC, id ASC")
+    fun observeRunRefreshActivity(runId: Long): Flow<List<RefreshActivityLogEntity>>
+
+    @Query("SELECT * FROM refresh_activity_logs ORDER BY timestamp ASC, id ASC")
+    fun observeAllRefreshActivity(): Flow<List<RefreshActivityLogEntity>>
+
+    @Query("SELECT DISTINCT runId FROM refresh_activity_logs ORDER BY runId DESC LIMIT 1")
+    suspend fun getLatestRunId(): Long?
 
     @Query("SELECT * FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT :limit")
     fun observeRecentRefreshActivity(limit: Int): Flow<List<RefreshActivityLogEntity>>
@@ -289,11 +299,17 @@ interface AurumDao {
     @Query("DELETE FROM refresh_activity_logs WHERE id NOT IN (SELECT id FROM refresh_activity_logs ORDER BY timestamp DESC, id DESC LIMIT :keep)")
     suspend fun trimRefreshActivity(keep: Int)
 
+    @Query("DELETE FROM refresh_activity_logs WHERE runId NOT IN (SELECT DISTINCT runId FROM refresh_activity_logs ORDER BY runId DESC LIMIT :maxRuns)")
+    suspend fun trimRefreshActivityToMaxRuns(maxRuns: Int)
+
     @Query("DELETE FROM refresh_activity_logs")
     suspend fun clearRefreshActivity()
 
     @Query("DELETE FROM refresh_activity_logs WHERE store = :store")
     suspend fun clearStoreRefreshActivity(store: String)
+
+    @Query("DELETE FROM refresh_activity_logs WHERE store = :store AND runId = :runId")
+    suspend fun clearStoreRefreshActivityForRun(store: String, runId: Long)
 }
 
 @Database(
@@ -305,7 +321,7 @@ interface AurumDao {
         BullionHistoryEntity::class,
         RefreshActivityLogEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AurumDatabase : RoomDatabase() {
@@ -317,7 +333,7 @@ abstract class AurumDatabase : RoomDatabase() {
             AurumDatabase::class.java,
             "aurum.db",
         ).createFromAsset("seed/aurum.db")
-         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
          .fallbackToDestructiveMigration()
          .build()
 
@@ -393,6 +409,13 @@ abstract class AurumDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `products` ADD COLUMN `blinkDealEndTime` INTEGER")
                 db.execSQL("ALTER TABLE `products` ADD COLUMN `deliverable` INTEGER NOT NULL DEFAULT 1")
                 db.execSQL("ALTER TABLE `products` ADD COLUMN `isMicroCoin` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `refresh_activity_logs` ADD COLUMN `runId` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_refresh_activity_logs_runId` ON `refresh_activity_logs` (`runId`)")
             }
         }
     }

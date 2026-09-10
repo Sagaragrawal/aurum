@@ -75,14 +75,11 @@ class NativeParallelRefreshEngine(
 
         // 0. Automatic Log and Raw Page Cleanup
         runCatching {
+            activityRepository?.startNewRun(activeStores)
             if (activeStores == null) {
-                database.dao().clearRefreshActivity()
-                internalDatabase?.dao()?.clearRefreshActivity()
                 DatabaseBackupManager.clearAllRawPages()
             } else {
                 for (st in activeStores) {
-                    database.dao().clearStoreRefreshActivity(st)
-                    internalDatabase?.dao()?.clearStoreRefreshActivity(st)
                     DatabaseBackupManager.clearStoreRawPages(st)
                 }
             }
