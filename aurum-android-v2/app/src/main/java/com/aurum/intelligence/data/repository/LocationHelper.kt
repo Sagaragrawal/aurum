@@ -160,11 +160,23 @@ object LocationHelper {
     """.trimIndent()
     }
 
-    fun buildPincodeHeaders(pincode: String): Map<String, String> = mapOf(
-        "X-Pincode" to pincode,
-        "X-Delivery-Pincode" to pincode,
-        "X-User-Pincode" to pincode,
-        "X-Location-Context" to "{\"pincode\":\"$pincode\"}",
-        "Cookie" to "pincode=$pincode; ajio_pincode=$pincode; mynt-ulc=pincode:$pincode; fk_pincode=$pincode; locationPincode=$pincode; locationContext={\"pincode\":\"$pincode\"}",
-    )
+    fun appendPincodeToUrl(url: String, pincode: String?): String {
+        if (pincode.isNullOrBlank() || !pincode.matches(Regex("\\d{6}"))) return url
+        if (url.contains("pincode=", ignoreCase = true)) return url
+        val separator = if (url.contains("?")) "&" else "?"
+        return "$url${separator}pincode=$pincode"
+    }
+
+    fun buildPincodeHeaders(pincode: String): Map<String, String> {
+        val cleanPin = pincode.takeIf { it.matches(Regex("\\d{6}")) } ?: defaultPincode
+        val encodedContext = "%7B%22pincode%22%3A%22$cleanPin%22%7D"
+        return mapOf(
+            "X-Pincode" to cleanPin,
+            "X-Delivery-Pincode" to cleanPin,
+            "X-User-Pincode" to cleanPin,
+            "x-user-pincode" to cleanPin,
+            "X-Location-Context" to "{\"pincode\":\"$cleanPin\"}",
+            "Cookie" to "pincode=$cleanPin; ajio_pincode=$cleanPin; mynt-ulc=pincode:$cleanPin; fk_pincode=$cleanPin; locationPincode=$cleanPin; locationContext=$encodedContext",
+        )
+    }
 }

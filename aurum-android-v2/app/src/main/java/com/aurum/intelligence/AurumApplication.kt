@@ -65,6 +65,19 @@ class AurumApplication : Application() {
                 deleteDatabase("aurum_internal.db")
                 com.aurum.intelligence.data.db.AurumInternalDatabase.create(this)
             }
+            val dbPath = getDatabasePath("aurum.db")
+            val backupFile = DatabaseBackupManager.getBackupFile(this)
+            if (!dbPath.exists() && backupFile.exists() && backupFile.length() > 0) {
+                runCatching {
+                    dbPath.parentFile?.mkdirs()
+                    backupFile.copyTo(dbPath, overwrite = true)
+                    val wal = java.io.File(backupFile.parentFile, "${backupFile.name}-wal")
+                    if (wal.exists()) wal.copyTo(java.io.File(dbPath.parentFile, "aurum.db-wal"), overwrite = true)
+                    val shm = java.io.File(backupFile.parentFile, "${backupFile.name}-shm")
+                    if (shm.exists()) shm.copyTo(java.io.File(dbPath.parentFile, "aurum.db-shm"), overwrite = true)
+                    android.util.Log.i("AurumApp", "Restored existing external aurum.db backup on new installation")
+                }
+            }
             database = runCatching {
                 AurumDatabase.create(this)
             }.getOrElse { e ->

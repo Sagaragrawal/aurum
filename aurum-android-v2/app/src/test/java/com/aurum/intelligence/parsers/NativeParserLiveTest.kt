@@ -131,4 +131,54 @@ class NativeParserLiveTest {
             println("Status: $status, Body length: ${body.length}, 24K: ${parsed.price24}, 22K: ${parsed.price22}, Derived: ${parsed.price22Derived}")
         }
     }
+
+    @Test
+    fun testShopsyMiaPdpUnserviceableCheck() {
+        val jsonWithNoAddToCart = """
+            {
+                "props": {
+                    "pageProps": {
+                        "initialState": {
+                            "pageData": {
+                                "RESPONSE": {
+                                    "slots": [
+                                        {
+                                            "widget": {
+                                                "type": "SHOPSY_PRODUCT_PAGE_SUMMARY_V2",
+                                                "data": {
+                                                    "titleComponent": {
+                                                        "value": {
+                                                            "superTitle": "Mia by Tanishq",
+                                                            "title": "Mia by Tanishq Tulsi Leaf Gold Coin 24 (999) K 1 g Gold Coin"
+                                                        }
+                                                    },
+                                                    "pricing": {
+                                                        "value": {
+                                                            "finalPrice": { "value": 10365 }
+                                                        },
+                                                        "action": {
+                                                            "params": { "productId": "CONHAG7XB96HXCK8" }
+                                                        }
+                                                    },
+                                                    "addToCart": null,
+                                                    "oosCallout": null,
+                                                    "outOfStock": false
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """.trimIndent()
+        val html = "<script id=\"__NEXT_DATA__\" type=\"application/json\">$jsonWithNoAddToCart</script>"
+        val res = FlipkartNativeParser.parse(html, "shopsy.in")
+        org.junit.Assert.assertEquals(1, res.candidates.size)
+        val candidate = res.candidates.single()
+        org.junit.Assert.assertEquals("CONHAG7XB96HXCK8", candidate.retailerId)
+        org.junit.Assert.assertTrue("Product with addToCart=null must be marked unavailable for pincode", candidate.unavailable)
+    }
 }

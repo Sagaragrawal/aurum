@@ -60,6 +60,70 @@ object FlipkartNativeParser {
                             val slot = slots.optJSONObject(i) ?: continue
                             val widget = slot.optJSONObject("widget") ?: continue
                             val widgetData = widget.optJSONObject("data") ?: continue
+                            val widgetType = widget.optString("type", "").uppercase()
+
+                            if ("SUMMARY" in widgetType || "PRODUCT_PAGE" in widgetType) {
+                                val titleComp = widgetData.optJSONObject("titleComponent")
+                                val titleVal = titleComp?.optJSONObject("value")
+                                val title = titleVal?.optString("title")?.takeIf(String::isNotBlank)
+                                    ?: widgetData.optJSONObject("title")?.optString("title")?.takeIf(String::isNotBlank)
+
+                                val pricing = widgetData.optJSONObject("pricing")
+                                val pricingVal = pricing?.optJSONObject("value")
+                                val price = pricingVal?.optJSONObject("finalPrice")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+                                    ?: pricingVal?.optJSONObject("mrp")?.optDouble("value")?.takeIf { it.isFinite() && it > 0 }
+
+                                val pricingActionParams = pricing?.optJSONObject("action")?.optJSONObject("params")
+                                var pid = pricingActionParams?.optString("productId")?.takeIf(String::isNotBlank)
+                                    ?: pricingActionParams?.optString("listingId")?.takeIf(String::isNotBlank)?.let {
+                                        var clean = if (it.startsWith("LST")) it.substring(3) else it
+                                        clean = clean.substringBefore('_')
+                                        if (clean.length > 16) clean.dropLast(7) else clean
+                                    }?.takeIf(String::isNotBlank)
+                                    ?: widgetData.optJSONObject("summaryMeta")?.optString("productId")?.takeIf(String::isNotBlank)
+
+                                if (title != null && price != null && pid != null && !seenPids.contains(pid)) {
+                                    seenPids.add(pid)
+                                    val brand = titleVal?.optString("superTitle")?.takeIf(String::isNotBlank)
+                                    val oosCallout = widgetData.optJSONObject("oosCallout")
+                                    val unavailable = oosCallout != null || widgetData.optBoolean("outOfStock", false)
+                                    val cleanUrl = "$host/p/itm?pid=$pid"
+
+                                    val record = BridgeRecord(
+                                        retailerId = pid,
+                                        url = cleanUrl,
+                                        name = title,
+                                        brand = brand,
+                                        price = price,
+                                        couponPrice = null,
+                                        metal = "Gold",
+                                        unavailable = unavailable,
+                                    )
+
+                                    when (val parsed = record.toProductCandidate(store, bullionRate24)) {
+                                        is CandidateParseResult.Valid -> candidates.add(parsed.candidate)
+                                        is CandidateParseResult.Rejected -> {
+                                            if (unavailable) {
+                                                candidates.add(
+                                                    ProductCandidate(
+                                                        store = store,
+                                                        retailerId = pid,
+                                                        canonicalUrl = ProductIdentity.canonicalUrl(cleanUrl),
+                                                        name = title,
+                                                        brand = brand,
+                                                        price = price,
+                                                        couponPrice = null,
+                                                        grams = null,
+                                                        karat = 24.0,
+                                                        purity = "999",
+                                                        unavailable = true,
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             val productArrays = mutableListOf<org.json.JSONArray>()
                             widgetData.optJSONArray("products")?.let { productArrays.add(it) }

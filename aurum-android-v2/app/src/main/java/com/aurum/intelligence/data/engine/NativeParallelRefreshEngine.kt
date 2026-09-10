@@ -480,13 +480,14 @@ class NativeParallelRefreshEngine(
                             for (page in 2..pageCap) {
                                 delay(config.delays.flipkartPageDelayMs)
                                 val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
+                                val pageUrl = "${targetUrl}$pageParam"
                                 plpRequests++
                                 activityRepository?.log(
                                     RefreshLogSeverity.Info,
                                     "flipkart.com",
                                     "[Flipkart] Fetching ${target.name} (page $page of $pageCap)..."
                                 )
-                                val resp = fetchStorePageWithRecovery("flipkart.com", "${targetUrl}$pageParam", flipkartHeaders)
+                                val resp = fetchStorePageWithRecovery("flipkart.com", pageUrl, flipkartHeaders)
                                 if (resp.status in 200..299 && resp.body.isNotBlank()) {
                                     DatabaseBackupManager.saveRawPage("flipkart.com", "${target.name}_page_$page", resp.body, "html")
                                     recordRawPayload(
@@ -662,13 +663,14 @@ class NativeParallelRefreshEngine(
                             for (page in 2..pageCap) {
                                 delay(config.delays.shopsyPageDelayMs)
                                 val pageParam = if (targetUrl.contains("?")) "&page=$page" else "?page=$page"
+                                val pageUrl = "${targetUrl}$pageParam"
                                 plpRequests++
                                 activityRepository?.log(
                                     RefreshLogSeverity.Info,
                                     "shopsy.in",
                                     "[Shopsy] Fetching ${target.name} (page $page of $pageCap)..."
                                 )
-                                val resp = fetchStorePageWithRecovery("shopsy.in", "${targetUrl}$pageParam", shopsyHeaders)
+                                val resp = fetchStorePageWithRecovery("shopsy.in", pageUrl, shopsyHeaders)
                                 if (resp.status in 200..299 && resp.body.isNotBlank()) {
                                     DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_$page", resp.body, "html")
                                     recordRawPayload(
@@ -1278,10 +1280,12 @@ class NativeParallelRefreshEngine(
         var validSaved = 0
 
         database.withTransaction {
-            val storeProducts = database.dao().productsByStore(store)
-            val byRetailerId = HashMap<String, ProductEntity>(storeProducts.size * 2)
-            val byCanonicalUrl = HashMap<String, ProductEntity>(storeProducts.size * 2)
-            for (p in storeProducts) {
+            val allProducts = database.dao().allProducts()
+            val byStoreAndRetailer = HashMap<String, ProductEntity>(allProducts.size * 2)
+            val byRetailerId = HashMap<String, ProductEntity>(allProducts.size * 2)
+            val byCanonicalUrl = HashMap<String, ProductEntity>(allProducts.size * 2)
+            for (p in allProducts) {
+                byStoreAndRetailer["${p.store}:${p.retailerId}"] = p
                 byRetailerId[p.retailerId] = p
                 if (p.canonicalUrl.isNotBlank()) {
                     byCanonicalUrl[p.canonicalUrl] = p
@@ -1294,13 +1298,15 @@ class NativeParallelRefreshEngine(
             for (candidate in candidates) {
                 try {
                     val cleanRetailerId = candidate.retailerId.substringBefore('_')
-                    val existing = byRetailerId[candidate.retailerId]
+                    val existing = byStoreAndRetailer["$store:${candidate.retailerId}"]
+                        ?: byStoreAndRetailer["$store:$cleanRetailerId"]
+                        ?: byRetailerId[candidate.retailerId]
                         ?: byRetailerId[cleanRetailerId]
                         ?: (if (candidate.canonicalUrl.isNotBlank()) byCanonicalUrl[candidate.canonicalUrl] else null)
 
                     val entityId = existing?.id ?: UUID.randomUUID().toString()
-                    val targetStore = existing?.store ?: store
-                    val targetRetailerId = existing?.retailerId ?: candidate.retailerId
+                    val targetStore = store
+                    val targetRetailerId = candidate.retailerId
 
                     val rawName = candidate.name ?: existing?.name ?: targetRetailerId
                     val isUnavailable = candidate.unavailable || ProductAvailability.isUnavailableName(rawName)
@@ -1379,6 +1385,12 @@ class NativeParallelRefreshEngine(
                         isMicroCoin = candidate.isMicroCoin,
                     )
 
+                    byStoreAndRetailer["$targetStore:$targetRetailerId"] = entity
+                    byRetailerId[targetRetailerId] = entity
+                    if (entity.canonicalUrl.isNotBlank()) {
+                        byCanonicalUrl[entity.canonicalUrl] = entity
+                    }
+
                     entitiesToUpsert.add(entity)
 
                     if (existing == null || existing.price != candidate.price || existing.couponPrice != candidate.couponPrice) {
@@ -1409,7 +1421,11 @@ class NativeParallelRefreshEngine(
                 database.dao().upsertProducts(entitiesToUpsert)
             }
             if (historiesToInsert.isNotEmpty()) {
-                database.dao().insertPriceHistories(historiesToInsert)
+                val validProductIds = database.dao().allProducts().map { it.id }.toSet() + entitiesToUpsert.map { it.id }.toSet()
+                val safeHistories = historiesToInsert.filter { it.productId in validProductIds }
+                if (safeHistories.isNotEmpty()) {
+                    database.dao().insertPriceHistories(safeHistories)
+                }
             }
         }
 
@@ -1481,9 +1497,12 @@ class NativeParallelRefreshEngine(
 
                             pdpRequests++
                             try {
+                                val storeKey = store.substringBefore('.')
+                                val storeConfigHeaders = config.stores[storeKey]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders
+                                val storeHeaders = storeConfigHeaders + pincodeHeaders
                                 val response = when (store) {
                                     "ajio.com" -> fetchStorePageWithRecovery("ajio.com", endpoint, ajioPdpHeaders)
-                                    else -> fetchStorePageWithRecovery(store, endpoint, desktopHeaders)
+                                    else -> fetchStorePageWithRecovery(store, endpoint, storeHeaders)
                                 }
 
                                 val ext = if (response.body.trimStart().startsWith("<") || response.body.trimStart().startsWith("<!")) "html" else "json"
@@ -1630,10 +1649,10 @@ class NativeParallelRefreshEngine(
         )
         if (internalDatabase != null) {
             internalDatabase.dao().insertRawPayload(payload)
-            internalDatabase.dao().trimRawPayloads(5)
+            internalDatabase.dao().trimRawPayloads(50)
         } else {
             database.dao().insertRawPayload(payload)
-            database.dao().trimRawPayloads(5)
+            database.dao().trimRawPayloads(50)
         }
     }
 }

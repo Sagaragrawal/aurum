@@ -33,7 +33,12 @@ object DatabaseBackupManager {
 
     fun shouldSaveRawPage(store: String): Boolean {
         val config = ScraperConfigProvider.get()
-        return config.debug.saveRawPages[store] == true
+        val key = store.lowercase().trim()
+        val shortKey = key.substringBefore('_').substringBefore('.')
+        val domainKey = if (shortKey.endsWith(".in") || shortKey.endsWith(".com")) shortKey else "$shortKey.in"
+        return config.debug.saveRawPages[key] == true ||
+            config.debug.saveRawPages[shortKey] == true ||
+            config.debug.saveRawPages[domainKey] == true
     }
 
     fun saveRawPage(store: String, pageName: String, content: String, extension: String = "txt") {
@@ -176,20 +181,19 @@ object DatabaseBackupManager {
 
     suspend fun checkAndRestoreIfNeeded(database: AurumDatabase, repository: BridgeRepository, context: Context): ArchiveImportResult? = withContext(Dispatchers.IO) {
         runCatching {
-            val productCount = database.dao().productCount()
-            if (productCount > 0) {
-                // Ensure existing products are strictly 24K
+            val backupFile = getBackupFile(context)
+            if (!backupFile.exists() || backupFile.length() == 0L) {
                 database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
                 database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")
                 return@runCatching null
             }
 
-            val backupFile = getBackupFile(context)
-            if (!backupFile.exists() || backupFile.length() == 0L) return@runCatching null
+            val result = runCatching {
+                FileInputStream(backupFile).use { input ->
+                    repository.importArchive(input)
+                }
+            }.getOrNull()
 
-            val result = FileInputStream(backupFile).use { input ->
-                repository.importArchive(input)
-            }
             // Enforce 100% 24K on restored records
             database.openHelper.writableDatabase.execSQL("DELETE FROM products WHERE karat != 24.0 OR karat IS NULL")
             database.openHelper.writableDatabase.execSQL("DELETE FROM product_price_history WHERE productId NOT IN (SELECT id FROM products)")

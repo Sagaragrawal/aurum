@@ -62,6 +62,23 @@ class RefreshActivityRepository(
     }
 
     suspend fun log(severity: RefreshLogSeverity, store: String?, message: String) {
+        val cleanStore = store?.lowercase()?.trim()
+        val storePrefixes = if (cleanStore != null) {
+            val storeShort = cleanStore.substringBefore('.')
+            setOf("[$cleanStore]", "[$storeShort]")
+        } else emptySet()
+
+        var formattedMessage = message.trim()
+        if (cleanStore != null) {
+            for (prefix in storePrefixes) {
+                if (formattedMessage.lowercase().startsWith(prefix.lowercase())) {
+                    val dropLength = prefix.length
+                    formattedMessage = formattedMessage.substring(dropLength).trimStart()
+                    break
+                }
+            }
+        }
+
         android.util.Log.println(
             when (severity) {
                 RefreshLogSeverity.Info -> android.util.Log.INFO
@@ -69,7 +86,7 @@ class RefreshActivityRepository(
                 RefreshLogSeverity.Error -> android.util.Log.ERROR
             },
             "AurumRefresh",
-            "${store?.let { "[$it] " }.orEmpty()}$message",
+            "${store?.let { "[$it] " }.orEmpty()}$formattedMessage",
         )
         database.withTransaction {
             var runId = currentRunIdState.value
@@ -82,7 +99,7 @@ class RefreshActivityRepository(
                     timestamp = clock(),
                     severity = severity.name.lowercase(),
                     store = store,
-                    message = message,
+                    message = formattedMessage,
                     runId = runId,
                 ),
             )

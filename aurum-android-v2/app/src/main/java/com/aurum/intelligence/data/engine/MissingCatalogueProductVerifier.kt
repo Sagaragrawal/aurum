@@ -317,10 +317,7 @@ sealed interface ProductLookup {
             "outofstock",
             "out_of_stock",
             "sold_out",
-            "soldout",
-            "unserviceable",
-            "pincode not serviceable",
-            "out of stock at pincode"
+            "soldout"
         )
 
         fun parse(store: String, statusCode: Int, body: String, sourceUrl: String = ""): ProductLookup {
@@ -348,6 +345,29 @@ sealed interface ProductLookup {
                     body.contains("\"outOfStock\": true", ignoreCase = true) ||
                     body.contains("\"fnlColorVariantData\":null", ignoreCase = true)
                 ))
+
+            if ((store == "flipkart.com" || store == "shopsy.in") && body.contains("__NEXT_DATA__")) {
+                val fkResult = com.aurum.intelligence.parsers.FlipkartNativeParser.parse(body, store)
+                val candidate = fkResult.candidates.firstOrNull()
+                if (candidate != null) {
+                    if (candidate.unavailable) {
+                        return Unavailable(candidate.price.takeIf { it > 0 })
+                    }
+                    return Available(
+                        price = candidate.price,
+                        couponPrice = candidate.couponPrice,
+                        name = candidate.name,
+                        brand = candidate.brand,
+                        grams = candidate.grams,
+                        weightConfidence = candidate.weightConfidence,
+                        refreshMethod = "$store-web-page",
+                        isBlinkDeal = candidate.isBlinkDeal,
+                        blinkDealPrice = candidate.blinkDealPrice,
+                        karat = candidate.karat,
+                        purity = candidate.purity,
+                    )
+                }
+            }
 
             if (store == "myntra.com" && body.contains("window.__myx")) {
                 val myxResult = com.aurum.intelligence.parsers.MyntraNativeParser.parse(body)
