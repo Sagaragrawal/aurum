@@ -169,14 +169,9 @@ object LocationHelper {
 
     fun buildPincodeHeaders(pincode: String): Map<String, String> {
         val cleanPin = pincode.takeIf { it.matches(Regex("\\d{6}")) } ?: defaultPincode
-        val encodedContext = "%7B%22pincode%22%3A%22$cleanPin%22%7D"
         return mapOf(
-            "X-Pincode" to cleanPin,
-            "X-Delivery-Pincode" to cleanPin,
             "X-User-Pincode" to cleanPin,
-            "x-user-pincode" to cleanPin,
-            "X-Location-Context" to "{\"pincode\":\"$cleanPin\"}",
-            "Cookie" to "pincode=$cleanPin; ajio_pincode=$cleanPin; mynt-ulc=pincode:$cleanPin; fk_pincode=$cleanPin; locationPincode=$cleanPin; locationContext=$encodedContext",
+            "Cookie" to "pincode=$cleanPin; ajio_pincode=$cleanPin; mynt-ulc=pincode:$cleanPin",
         )
     }
 }

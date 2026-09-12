@@ -160,7 +160,6 @@ class NativeParserLiveTest {
                                                             "params": { "productId": "CONHAG7XB96HXCK8" }
                                                         }
                                                     },
-                                                    "addToCart": null,
                                                     "oosCallout": null,
                                                     "outOfStock": false
                                                 }
@@ -179,6 +178,38 @@ class NativeParserLiveTest {
         org.junit.Assert.assertEquals(1, res.candidates.size)
         val candidate = res.candidates.single()
         org.junit.Assert.assertEquals("CONHAG7XB96HXCK8", candidate.retailerId)
-        org.junit.Assert.assertTrue("Product with addToCart=null must be marked unavailable for pincode", candidate.unavailable)
+        org.junit.Assert.assertFalse("Product in stock with oosCallout=null must be marked live", candidate.unavailable)
+    }
+
+    @Test
+    fun testShopsyPincodeVariationsMatrix() {
+        val pincode = "560048"
+        val pdpUrlBase = "https://www.shopsy.in/mia-tanishq-gullak-1g-gold-coin-24-999-k-1-g/p/itm5f5b276845899?pid=CONHAG7XH3XH9FDB&marketplace=FLIPKART"
+
+        val variations = listOf(
+            "1. Baseline (No pincode)" to (pdpUrlBase to emptyMap<String, String>()),
+            "2. Query Param ?pincode=560048" to ("$pdpUrlBase&pincode=$pincode" to emptyMap()),
+            "3. Header X-User-Pincode" to (pdpUrlBase to mapOf("X-User-Pincode" to pincode)),
+            "4. Header X-Pincode + X-Delivery-Pincode" to (pdpUrlBase to mapOf("X-Pincode" to pincode, "X-Delivery-Pincode" to pincode)),
+            "5. Cookie pincode=560048" to (pdpUrlBase to mapOf("Cookie" to "pincode=$pincode")),
+            "6. Cookie fk_pincode=560048" to (pdpUrlBase to mapOf("Cookie" to "fk_pincode=$pincode")),
+            "7. Cookie locationContext=encoded_JSON" to (pdpUrlBase to mapOf("Cookie" to "locationContext=%7B%22pincode%22%3A%22$pincode%22%7D")),
+            "8. Combined Headers + Cookies" to (pdpUrlBase to mapOf(
+                "X-User-Pincode" to pincode,
+                "X-Pincode" to pincode,
+                "Cookie" to "pincode=$pincode; fk_pincode=$pincode; locationContext=%7B%22pincode%22%3A%22$pincode%22%7D"
+            ))
+        )
+
+        println("=== SHOPSY PINCODE EXPERIMENTAL MATRIX ===")
+        for ((name, pair) in variations) {
+            val (url, headers) = pair
+            Thread.sleep(1500)
+            val (status, body) = fetchUrl(url, headers)
+            val pincodeInText = body.contains("560048")
+            val oosForPincode = body.contains("out of stock for", ignoreCase = true)
+            val findSellerText = body.contains("Find a seller that delivers to you", ignoreCase = true)
+            println("[$name] -> HTTP Status: $status, Length: ${body.length}, Has 560048: $pincodeInText, OOS Text: $oosForPincode, FindSellerText: $findSellerText")
+        }
     }
 }

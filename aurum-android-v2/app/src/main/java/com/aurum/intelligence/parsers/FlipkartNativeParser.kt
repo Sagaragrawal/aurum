@@ -86,7 +86,11 @@ object FlipkartNativeParser {
                                     seenPids.add(pid)
                                     val brand = titleVal?.optString("superTitle")?.takeIf(String::isNotBlank)
                                     val oosCallout = widgetData.optJSONObject("oosCallout")
-                                    val unavailable = oosCallout != null || widgetData.optBoolean("outOfStock", false)
+                                    val outOfStock = widgetData.optBoolean("outOfStock", false)
+                                    val hasOosText = html.contains("Currently out of stock", ignoreCase = true)
+                                        || html.contains("Find a seller that delivers to you", ignoreCase = true)
+                                        || html.contains("not deliverable", ignoreCase = true)
+                                    val unavailable = oosCallout != null || outOfStock || hasOosText
                                     val cleanUrl = "$host/p/itm?pid=$pid"
 
                                     val record = BridgeRecord(

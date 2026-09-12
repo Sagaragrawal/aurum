@@ -50,14 +50,11 @@ object CronetNetworkClient {
     }
 
     fun resetSession() {
-        val ctx = appContext ?: return
         synchronized(this) {
             runCatching {
-                cronetEngine?.shutdown()
+                (java.net.CookieHandler.getDefault() as? java.net.CookieManager)?.cookieStore?.removeAll()
             }
-            cronetEngine = null
-            initialize(ctx)
-            Log.i("CronetClient", "Cronet session successfully reset/reinitialized.")
+            Log.i("CronetClient", "Cronet session cookies successfully reset.")
         }
     }
 

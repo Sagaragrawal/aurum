@@ -201,8 +201,8 @@
     "historyRetentionCount": 480
   },
   "delays": {
-    "ajioPageDelayMs": 1200,
-    "ajioRateLimitBackoffMs": 3000,
+    "ajioPageDelayMs": 2500,
+    "ajioRateLimitBackoffMs": 6000,
     "flipkartPageDelayMs": 350,
     "shopsyPageDelayMs": 200,
     "amazonPageDelayMs": 400,
@@ -221,7 +221,7 @@
     "defaultPagesPerRefresh": 3,
     "ajioPageSize": 45,
     "myntraPageSize": 50,
-    "maxPdpItemsPerStore": 500,
+    "maxPdpItemsPerStore": 60,
     "pdpConcurrency": 5,
     "verifierConcurrency": 30,
     "pdpMaxConsecutiveFailures": 5,
@@ -254,6 +254,7 @@
       "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
       "Accept": "application/json, text/plain, */*",
       "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+      "Referer": "https://www.ajio.com/",
       "Cache-Control": "no-cache",
       "Pragma": "no-cache",
       "Sec-Fetch-Dest": "empty",

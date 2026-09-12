@@ -109,6 +109,11 @@ class RefreshActivityRepositoryTest {
 
 private class FakeAurumInternalDatabase(private val dao: AurumInternalDao) : AurumInternalDatabase() {
     override fun dao(): AurumInternalDao = dao
+    override fun createInvalidationTracker(): androidx.room.InvalidationTracker {
+        val tracker = androidx.room.InvalidationTracker(this, hashMapOf<String, String>(), hashMapOf<String, Set<String>>(), "refresh_activity_logs", "raw_bridge_payloads", "scraper_execution_metrics")
+        return tracker
+    }
+    override fun clearAllTables() {}
 }
 
 private class FakeAurumInternalDao : AurumInternalDao {
@@ -165,7 +170,7 @@ private class FakeAurumInternalDao : AurumInternalDao {
         val distinctRuns = logs.map { it.runId }.distinct().sortedDescending()
         if (distinctRuns.size > maxRuns) {
             val allowedRuns = distinctRuns.take(maxRuns).toSet()
-            logs.removeAll { it.runId notIn allowedRuns }
+            logs.removeAll { !allowedRuns.contains(it.runId) }
             notifyChanges()
         }
     }

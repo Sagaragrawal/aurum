@@ -63,8 +63,8 @@ data class BullionConfig(
 
 @Serializable
 data class ScraperDelays(
-    val ajioPageDelayMs: Long = 1200L,
-    val ajioRateLimitBackoffMs: Long = 3000L,
+    val ajioPageDelayMs: Long = 2500L,
+    val ajioRateLimitBackoffMs: Long = 6000L,
     val flipkartPageDelayMs: Long = 350L,
     val shopsyPageDelayMs: Long = 200L,
     val amazonPageDelayMs: Long = 400L,

@@ -174,10 +174,11 @@ class NativeParallelRefreshEngine(
 
             val isBlocked = response.status in setOf(403, 429, 503) ||
                 (response.body.isNotBlank() && (
-                    response.body.contains("request blocked", ignoreCase = true) ||
-                    response.body.contains("access denied", ignoreCase = true) ||
-                    response.body.contains("captcha", ignoreCase = true) ||
-                    response.body.contains("perimeterx", ignoreCase = true)
+                    response.body.contains("<title>Access Denied</title>", ignoreCase = true) ||
+                    response.body.contains("<title>Request Blocked</title>", ignoreCase = true) ||
+                    response.body.contains("<title>Robot Check</title>", ignoreCase = true) ||
+                    response.body.contains("<title>Human Verification</title>", ignoreCase = true) ||
+                    response.body.contains("<h1>Please verify you are a human</h1>", ignoreCase = true)
                 ))
 
             if (response.status in 200..299 && response.body.isNotBlank() && !isBlocked) {
@@ -186,9 +187,9 @@ class NativeParallelRefreshEngine(
 
             if (attempt < maxRetries) {
                 activityRepository?.log(
-                    RefreshLogSeverity.Warning,
+                    RefreshLogSeverity.Info,
                     store,
-                    "[$store] Request returned HTTP ${response.status} (attempt $attempt/$maxRetries). Dropping cookies & resetting session...",
+                    "[$store] Request returned HTTP ${response.status} (attempt $attempt/$maxRetries). Retrying in ${delayMs}ms...",
                 )
 
                 // Drop session & cookies
@@ -474,7 +475,7 @@ class NativeParallelRefreshEngine(
                         discovered += targetDiscovered
                         valid += targetValid
 
-                        val pageCap = if (target.isMinutes) 1 else minOf(30, config.limits.maxPagesPerStore)
+                        val pageCap = if (target.isMinutes) 1 else config.limits.maxPagesPerStore
                         if (pageCap > 1) {
                             var consecutiveEmptyPages = 0
                             for (page in 2..pageCap) {
@@ -631,7 +632,9 @@ class NativeParallelRefreshEngine(
             val config = ScraperConfigProvider.get()
             val shopsyTargets = config.shopsyTargets
             val pincodeHeaders = LocationHelper.buildPincodeHeaders(pincode)
-            val shopsyHeaders = (config.stores["shopsy"]?.headers?.takeIf { it.isNotEmpty() } ?: config.network.desktopHeaders) + pincodeHeaders
+            val shopsySession = ShopsyCronetSession()
+            shopsySession.bootstrap()
+            shopsySession.setPincode(pincode)
 
             for (target in shopsyTargets) {
                 val urlStart = System.currentTimeMillis()
@@ -643,7 +646,7 @@ class NativeParallelRefreshEngine(
                         "[Shopsy] Fetching ${target.name} (page 1)..."
                     )
                     plpRequests++
-                    val resp1 = fetchStorePageWithRecovery("shopsy.in", targetUrl, shopsyHeaders)
+                    val resp1 = shopsySession.fetchPlp(targetUrl)
                     if (resp1.status in 200..299 && resp1.body.isNotBlank()) {
                         DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_1", resp1.body, "html")
                         recordRawPayload(
@@ -657,7 +660,7 @@ class NativeParallelRefreshEngine(
                         discovered += targetDiscovered
                         valid += targetValid
 
-                        val pageCap = minOf(30, config.limits.maxPagesPerStore)
+                        val pageCap = config.limits.maxPagesPerStore
                         if (pageCap > 1) {
                             var consecutiveEmptyPages = 0
                             for (page in 2..pageCap) {
@@ -670,7 +673,7 @@ class NativeParallelRefreshEngine(
                                     "shopsy.in",
                                     "[Shopsy] Fetching ${target.name} (page $page of $pageCap)..."
                                 )
-                                val resp = fetchStorePageWithRecovery("shopsy.in", pageUrl, shopsyHeaders)
+                                val resp = shopsySession.fetchPlp(pageUrl)
                                 if (resp.status in 200..299 && resp.body.isNotBlank()) {
                                     DatabaseBackupManager.saveRawPage("shopsy.in", "${target.name}_page_$page", resp.body, "html")
                                     recordRawPayload(
@@ -841,7 +844,7 @@ class NativeParallelRefreshEngine(
                         valid += targetValid
 
                         val totalAvailable = parsed1.totalResults
-                        val pageCap = if (totalAvailable > 0) minOf(20, (totalAvailable + 15) / 16) else minOf(20, config.limits.maxPagesPerStore)
+                        val pageCap = if (totalAvailable > 0) (totalAvailable + 15) / 16 else config.limits.maxPagesPerStore
                         if (pageCap > 1) {
                             var consecutiveEmptyPages = 0
                             for (page in 2..pageCap) {
@@ -1468,7 +1471,7 @@ class NativeParallelRefreshEngine(
         var consecutiveFailures = 0
         var abortPdp = false
 
-        val concurrency = config.limits.pdpConcurrency.coerceIn(1, 20)
+        val concurrency = if (store == "ajio.com") 1 else config.limits.pdpConcurrency.coerceIn(1, 20)
         val semaphore = kotlinx.coroutines.sync.Semaphore(concurrency)
 
         coroutineScope {
@@ -1478,7 +1481,11 @@ class NativeParallelRefreshEngine(
                     async {
                         if (abortPdp) return@async
                         semaphore.withPermit {
-                            val delayMs = if (store == "amazon.in") config.delays.pdpAmazonDelayMs else config.delays.pdpInterRequestDelayMs
+                            val delayMs = when (store) {
+                                "ajio.com" -> 1500L
+                                "amazon.in" -> config.delays.pdpAmazonDelayMs
+                                else -> config.delays.pdpInterRequestDelayMs
+                            }
                             delay(delayMs)
 
                             val endpoint = when (store) {
@@ -1502,6 +1509,12 @@ class NativeParallelRefreshEngine(
                                 val storeHeaders = storeConfigHeaders + pincodeHeaders
                                 val response = when (store) {
                                     "ajio.com" -> fetchStorePageWithRecovery("ajio.com", endpoint, ajioPdpHeaders)
+                                    "shopsy.in" -> {
+                                        val session = ShopsyCronetSession()
+                                        session.bootstrap()
+                                        if (pincode != null) session.setPincode(pincode, product.retailerId)
+                                        session.fetchPdp(endpoint)
+                                    }
                                     else -> fetchStorePageWithRecovery(store, endpoint, storeHeaders)
                                 }
 
