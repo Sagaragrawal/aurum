@@ -390,7 +390,7 @@ sealed interface ProductLookup {
                         purity = candidate.purity,
                     )
                 } else {
-                    return RejectedNon24K
+                    return Unknown
                 }
             }
 

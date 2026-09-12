@@ -85,7 +85,11 @@ object Product24KValidator {
         }
 
         // 3. Reject non-gold and accessories
-        if (NON_GOLD_PATTERN.matcher(trimmedName).find()) {
+        val nonGoldRegex = ScraperConfigProvider.get().policy.nonGoldKeywords.takeIf { it.isNotEmpty() }?.let { keywords ->
+            Pattern.compile("(?:${keywords.joinToString("|") { Pattern.quote(it.trim()) }})", Pattern.CASE_INSENSITIVE)
+        } ?: NON_GOLD_PATTERN
+
+        if (nonGoldRegex.matcher(trimmedName).find()) {
             return ValidationResult(isValid = false, rejectionReason = "Non-gold metal, accessory, or souvenir detected")
         }
 
@@ -113,7 +117,11 @@ object Product24KValidator {
         val isCoinPendant = hasPendantWord && is24KOrCoin
         val isVedhaniRing = (hasRingWord || isVedhaniWord) && (is24KOrCoin || isVedhaniWord)
 
-        if (JEWELRY_IDOL_PATTERN.matcher(trimmedName).find() && !isCoinPendant && !isVedhaniRing) {
+        val jewelryRegex = ScraperConfigProvider.get().policy.jewelryKeywords.takeIf { it.isNotEmpty() }?.let { keywords ->
+            Pattern.compile("(?:${keywords.joinToString("|") { Pattern.quote(it.trim()) }})", Pattern.CASE_INSENSITIVE)
+        } ?: JEWELRY_IDOL_PATTERN
+
+        if (jewelryRegex.matcher(trimmedName).find() && !isCoinPendant && !isVedhaniRing) {
             return ValidationResult(isValid = false, rejectionReason = "Ornamental jewelry or idol detected")
         }
 

@@ -19,11 +19,9 @@
       "pdpUrlPattern": "https://www.ajio.com/api/p/{id}",
       "webBaseUrl": "https://www.ajio.com",
       "headers": {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-        "x-requested-with": "browser",
-        "x-meta-app": "channel=web"
+        "User-Agent": "Ajio/8.0.0 (Linux; U; Android 14; en_IN; Pixel 8 Pro)",
+        "Accept": "application/json",
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8"
       }
     },
     "flipkart": {
@@ -93,13 +91,9 @@
       "pdpUrlPattern": "https://www.amazon.in/dp/{id}",
       "webBaseUrl": "https://www.amazon.in",
       "headers": {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-        "Referer": "https://www.amazon.in/",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8"
       }
     },
     "myntra": {
@@ -251,15 +245,9 @@
       "Sec-Fetch-User": "?1"
     },
     "cronetApiRequestHeaders": {
-      "User-Agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Mobile Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-      "Referer": "https://www.ajio.com/",
-      "Cache-Control": "no-cache",
-      "Pragma": "no-cache",
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "same-origin"
+      "User-Agent": "Ajio/8.0.0 (Linux; U; Android 14; en_IN; Pixel 8 Pro)",
+      "Accept": "application/json",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8"
     },
     "desktopHeaders": {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -267,13 +255,9 @@
       "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7"
     },
     "ajioPdpHeaders": {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-      "Referer": "https://www.ajio.com/",
-      "Sec-Fetch-Dest": "empty",
-      "Sec-Fetch-Mode": "cors",
-      "Sec-Fetch-Site": "same-origin"
+      "User-Agent": "Ajio/8.0.0 (Linux; U; Android 14; en_IN; Pixel 8 Pro)",
+      "Accept": "application/json",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8"
     }
   },
   "location": {
@@ -334,6 +318,21 @@
       "isAvailable\":false",
       "purchasable\":false",
       "stockLevelStatus\":\"outOfStock\""
+    ],
+    "nonGoldKeywords": [
+      "silver", "chandi", "platinum", "brass", "copper", "alloy", "iron", "steel",
+      "wooden", "wood", "cloth", "stone", "detecting", "testing", "dogecoin", "casino",
+      "soenir", "souvenir", "replica", "plated", "imitation", "base metal"
+    ],
+    "jewelryKeywords": [
+      "necklace", "necklaces", "chain", "chains", "earring", "earrings", "bangle",
+      "bangles", "bracelet", "bracelets", "mangalsutra", "rakhi", "rakhis", "nose pin",
+      "kada", "kadas", "anklet", "anklets", "locket", "lockets", "brooch", "idol",
+      "idols", "statue", "statues", "diya", "diyas", "pooja thali", "tanmaniya", "payal",
+      "jhumka", "jhumki", "tie clip", "kasulaperu"
+    ],
+    "ignoredCouponCodes": [
+      "MYNTRA300", "MYNTRA200", "MYNTRA100", "NEWUSER", "FIRST"
     ]
   },
   "appSettingsDefaults": {

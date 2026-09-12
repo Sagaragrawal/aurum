@@ -154,6 +154,9 @@ data class PolicyConfig(
     val liveFreshnessMillis: Long = 86400000L,
     val microCoinMaxGrams: Double = 0.25,
     val unserviceableTerms: List<String> = emptyList(),
+    val nonGoldKeywords: List<String> = emptyList(),
+    val jewelryKeywords: List<String> = emptyList(),
+    val ignoredCouponCodes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -234,35 +237,29 @@ object ScraperConfigProvider {
     }
 
     private fun loadConfig(context: Context?): AurumConfig {
-        val candidateFiles = listOfNotNull(
-            File("/storage/emulated/0/aurum/config.json"),
-            context?.let { File(it.filesDir, "config.json") },
-            File("src/main/assets/config.json"),
-            File("app/src/main/assets/config.json"),
-        )
-
-        for (file in candidateFiles) {
-            runCatching {
-                if (file.exists() && file.canRead()) {
-                    val content = file.readText()
+        // 1. Check internal storage / override files if context is available
+        context?.let { ctx ->
+            val internalFile = File(ctx.filesDir, "config.json")
+            if (internalFile.exists() && internalFile.canRead()) {
+                runCatching {
+                    val content = internalFile.readText()
                     if (content.isNotBlank()) {
-                        logI(TAG, "Loaded config from ${file.absolutePath}")
+                        logI(TAG, "Loaded config from internal filesDir")
                         return json.decodeFromString<AurumConfig>(content)
                     }
+                }.onFailure { e ->
+                    logW(TAG, "Failed reading config from internal filesDir: ${e.message}")
                 }
-            }.onFailure { e ->
-                logW(TAG, "Failed reading config from ${file.absolutePath}: ${e.message}")
             }
         }
 
+        // 2. Load from Android AssetManager
         context?.let { ctx ->
             runCatching {
                 ctx.assets.open("config.json").bufferedReader().use { it.readText() }.let { content ->
                     if (content.isNotBlank()) {
                         logI(TAG, "Loaded default config from assets/config.json")
-                        val assetConfig = json.decodeFromString<AurumConfig>(content)
-                        saveConfig(assetConfig, ctx)
-                        return assetConfig
+                        return json.decodeFromString<AurumConfig>(content)
                     }
                 }
             }.onFailure { e ->
@@ -270,12 +267,16 @@ object ScraperConfigProvider {
             }
         }
 
+        // 3. Fallback to ClassLoader resource for JVM / Unit Tests
         runCatching {
             ScraperConfigProvider::class.java.classLoader?.getResourceAsStream("config.json")?.bufferedReader()?.use { it.readText() }?.let { content ->
                 if (content.isNotBlank()) {
+                    logI(TAG, "Loaded config from ClassLoader resource")
                     return json.decodeFromString<AurumConfig>(content)
                 }
             }
+        }.onFailure { e ->
+            logW(TAG, "Failed reading config from ClassLoader: ${e.message}")
         }
 
         val defaultConfig = AurumConfig()
@@ -285,16 +286,6 @@ object ScraperConfigProvider {
 
     private fun saveConfig(config: AurumConfig, context: Context?) {
         val serialized = json.encodeToString(config)
-        runCatching {
-            val aurumDir = File(config.storage.externalDirPath)
-            if (!aurumDir.exists()) aurumDir.mkdirs()
-            val configFile = File(aurumDir, "config.json")
-            configFile.writeText(serialized)
-            logI(TAG, "Saved external config to ${configFile.absolutePath}")
-        }.onFailure { e ->
-            logW(TAG, "Failed writing external config: ${e.message}")
-        }
-
         context?.let { ctx ->
             runCatching {
                 val internalFile = File(ctx.filesDir, "config.json")

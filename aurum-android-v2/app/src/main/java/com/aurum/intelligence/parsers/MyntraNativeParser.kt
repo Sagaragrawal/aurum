@@ -19,11 +19,9 @@ object MyntraNativeParser {
     private fun isIgnoredFirstUserCoupon(code: String?): Boolean {
         if (code.isNullOrBlank()) return false
         val upper = code.uppercase()
-        return upper.contains("MYNTRA300") ||
-            upper.contains("MYNTRA200") ||
-            upper.contains("MYNTRA100") ||
-            upper.contains("NEWUSER") ||
-            upper.contains("FIRST")
+        val ignoredList = ScraperConfigProvider.get().policy.ignoredCouponCodes.takeIf { it.isNotEmpty() }
+            ?: listOf("MYNTRA300", "MYNTRA200", "MYNTRA100", "NEWUSER", "FIRST")
+        return ignoredList.any { upper.contains(it.uppercase()) }
     }
 
     fun parse(content: String, bullionRate24: Double? = null): ParseResult {
